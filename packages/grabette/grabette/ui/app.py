@@ -553,6 +553,15 @@ html.gb-off .toast-wrap {
 #tr-page .grabette-step .row {
     justify-content: flex-start !important;
 }
+@media (hover: hover) {
+    #tr-page img.tr-gif {
+        filter: grayscale(1) opacity(.6);
+        transition: filter .2s;
+    }
+    #tr-page img.tr-gif:hover {
+        filter: none;
+    }
+}
 #tr-page .tr-gif-title {
     margin-bottom: .4rem;
     text-align: center;
@@ -654,6 +663,27 @@ def _hf_login_only_html(label: str) -> str:
     )
 
 
+# Hover-to-play, on pointers that can hover; phones keep the plain looping GIF.
+# Each hover gets a fresh blob: URL so the animation restarts from frame 0 —
+# browsers share one animation clock per URL — without downloading it again.
+# window.URL, not URL: inside an inline handler that resolves to document.URL.
+_GIF_ENTER_JS = (
+    "if(!matchMedia('(hover: hover)').matches)return;var i=this;"
+    "if(i._b){i.src=window.URL.createObjectURL(i._b);return}"
+    "fetch(i.dataset.gif).then(function(r){return r.blob()}).then(function(b){"
+    "i._b=b;if(i.matches(':hover'))i.src=window.URL.createObjectURL(b)})"
+)
+_GIF_LEAVE_JS = (
+    "if(!matchMedia('(hover: hover)').matches)return;"
+    "if(this.src.startsWith('blob:'))window.URL.revokeObjectURL(this.src);"
+    "this.src=this.dataset.poster"
+)
+_GIF_LOAD_JS = (
+    "if(!this.dataset.m&&!matchMedia('(hover: hover)').matches)"
+    "{this.dataset.m=1;this.src=this.dataset.gif}"
+)
+
+
 # Test Recording shows the grabette's own button being pressed instead of
 # offering start/stop buttons of its own: the physical button is how a recording
 # is made in the field, and this is the page whose job is to teach that.
@@ -663,13 +693,20 @@ def _button_gif(filename: str, title: str, caption_html: str) -> str:
     """caption_html is trusted markup (<b> for the words to catch); the alt
     text is the same caption with its tags stripped."""
     alt = html.escape(re.sub(r"<[^>]+>", "", caption_html))
+    poster = filename.rsplit(".", 1)[0] + ".jpg"
     return (
         '<figure style="margin:0 auto;width:100%;">'
         '<div class="tr-gif-title">'
         f'{html.escape(title)}</div>'
-        f'<img src="/ui-assets/{filename}" alt="{alt}"'
+        # Still and grey until hovered: the page shows a first-frame poster
+        # and only swaps the GIF in on mouseenter.
+        f'<img class="tr-gif" src="/ui-assets/{poster}" alt="{alt}"'
+        f' data-gif="/ui-assets/{filename}" data-poster="/ui-assets/{poster}"'
         ' style="width:100%;aspect-ratio:1;object-fit:cover;display:block;'
         'border-radius:14px;background:#0f172a;"'
+        f' onmouseenter="{html.escape(_GIF_ENTER_JS)}"'
+        f' onmouseleave="{html.escape(_GIF_LEAVE_JS)}"'
+        f' onload="{html.escape(_GIF_LOAD_JS)}"'
         ' onerror="this.style.display=\'none\';'
         'this.nextElementSibling.style.display=\'flex\';">'
         '<div style="display:none;align-items:center;justify-content:center;'
