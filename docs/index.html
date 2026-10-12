@@ -484,6 +484,7 @@
             background: rgba(245,158,11,.18);
             color: #fde68a;
         }
+        a.bookmark-url[href] { text-decoration: underline; }
         @media (prefers-reduced-motion: reduce) {
             .dash-link { transition: none; }
             .dash-link:hover { transform: none; }
@@ -969,7 +970,7 @@
 
             <div class="card" id="dashWait">
                 <p class="wait-note">Finish <b>WiFi setup</b> — the link appears once the Grabette
-                 reports its IP address.<br> Or you can also use : <code class="bookmark-url">http://&lt;hostname&gt;.local:8000/</code> </p>
+                 reports its IP address.<br> Or you can also use : <a class="bookmark-url" id="dashMdns" target="_blank" rel="noopener">http://&lt;hostname&gt;.local:8000/</a> </p>
             </div>
 
             <div class="card step-card" id="card-dash" hidden>
@@ -1258,6 +1259,7 @@
             // parenthesised part is the hostname to use for the .local fallback.
             const hostMatch = /\(([^)]+)\)/.exec(shownName);
             connectedHost = hostMatch ? hostMatch[1] : null;
+            setMdnsLink();
             setConnected(true, shownName);
             clearMsg('msgConnect');
             log('Connected to ' + shownName, 'log-ok');
@@ -1601,6 +1603,17 @@
         const d = document.createElement('div');
         d.textContent = str;
         return d.innerHTML;
+    }
+
+    // Without a hostname the placeholder stays plain text: a link to
+    // "<hostname>.local" would go nowhere.
+    function setMdnsLink() {
+        const a = document.getElementById('dashMdns');
+        const port = DASHBOARD_PORTS[connectedType];
+        if (!connectedHost || !port) return;
+        const url = 'http://' + connectedHost + '.local:' + port + '/';
+        a.href = url;
+        a.textContent = url;
     }
 
     function offerDashboard(status) {
