@@ -6,6 +6,7 @@ import html
 import io
 import logging
 import math
+import re
 import time
 from functools import partial
 from urllib.parse import quote
@@ -503,8 +504,11 @@ html.gb-off .toast-wrap {
     width: auto !important;
     min-width: 0 !important;
 }
-.gb-calib-card button.gb-calib-gone {
+.gb-calib-card .gb-calib-gone {
     display: none !important;
+}
+.gb-calib-card .gb-calib-phase {
+    gap: .9rem !important;
 }
 @media (max-width: 560px) {
     #tr-page .gb-calib-box .gb-calib-open,
@@ -549,23 +553,21 @@ html.gb-off .toast-wrap {
 #tr-page .grabette-step .row {
     justify-content: flex-start !important;
 }
-#tr-page .tr-howto {
-    background: var(--color-accent-soft);
-    border-left: 4px solid var(--color-accent);
-    border-radius: 10px;
-    padding: .8rem 1rem;
-    font-size: .9rem;
+@media (hover: hover) {
+    #tr-page img.tr-gif {
+        filter: grayscale(1) opacity(.6);
+        transition: filter .2s;
+    }
+    #tr-page img.tr-gif:hover {
+        filter: none;
+    }
 }
-#tr-page .tr-howto .ov-cues {
-    display: grid;
-    grid-template-columns: 32px 1fr;
-    gap: .5rem .75rem;
-    align-items: center;
-    margin-top: .5rem;
-}
-#tr-page .tr-howto svg {
-    width: 32px;
-    height: 16px;
+#tr-page .tr-gif-title {
+    margin-bottom: .4rem;
+    text-align: center;
+    font-size: .95rem;
+    /* 700, not 600: phones without a 600 face fall back to regular. */
+    font-weight: 700;
     color: var(--body-text-color);
 }
 /* Only the action row is centred: its two controls must sit on one line even
@@ -661,17 +663,50 @@ def _hf_login_only_html(label: str) -> str:
     )
 
 
+# Hover-to-play, on pointers that can hover; phones keep the plain looping GIF.
+# Each hover gets a fresh blob: URL so the animation restarts from frame 0 —
+# browsers share one animation clock per URL — without downloading it again.
+# window.URL, not URL: inside an inline handler that resolves to document.URL.
+_GIF_ENTER_JS = (
+    "if(!matchMedia('(hover: hover)').matches)return;var i=this;"
+    "if(i._b){i.src=window.URL.createObjectURL(i._b);return}"
+    "fetch(i.dataset.gif).then(function(r){return r.blob()}).then(function(b){"
+    "i._b=b;if(i.matches(':hover'))i.src=window.URL.createObjectURL(b)})"
+)
+_GIF_LEAVE_JS = (
+    "if(!matchMedia('(hover: hover)').matches)return;"
+    "if(this.src.startsWith('blob:'))window.URL.revokeObjectURL(this.src);"
+    "this.src=this.dataset.poster"
+)
+_GIF_LOAD_JS = (
+    "if(!this.dataset.m&&!matchMedia('(hover: hover)').matches)"
+    "{this.dataset.m=1;this.src=this.dataset.gif}"
+)
+
+
 # Test Recording shows the grabette's own button being pressed instead of
 # offering start/stop buttons of its own: the physical button is how a recording
 # is made in the field, and this is the page whose job is to teach that.
 # Served from grabette/ui/assets, mounted at /ui-assets (NOT /assets, which is
 # Gradio's own bundle); onerror keeps the step readable without the file.
-def _button_gif(filename: str, caption: str) -> str:
+def _button_gif(filename: str, title: str, caption_html: str) -> str:
+    """caption_html is trusted markup (<b> for the words to catch); the alt
+    text is the same caption with its tags stripped."""
+    alt = html.escape(re.sub(r"<[^>]+>", "", caption_html))
+    poster = filename.rsplit(".", 1)[0] + ".jpg"
     return (
         '<figure style="margin:0 auto;width:100%;">'
-        f'<img src="/ui-assets/{filename}" alt="{html.escape(caption)}"'
+        '<div class="tr-gif-title">'
+        f'{html.escape(title)}</div>'
+        # Still and grey until hovered: the page shows a first-frame poster
+        # and only swaps the GIF in on mouseenter.
+        f'<img class="tr-gif" src="/ui-assets/{poster}" alt="{alt}"'
+        f' data-gif="/ui-assets/{filename}" data-poster="/ui-assets/{poster}"'
         ' style="width:100%;aspect-ratio:1;object-fit:cover;display:block;'
         'border-radius:14px;background:#0f172a;"'
+        f' onmouseenter="{html.escape(_GIF_ENTER_JS)}"'
+        f' onmouseleave="{html.escape(_GIF_LEAVE_JS)}"'
+        f' onload="{html.escape(_GIF_LOAD_JS)}"'
         ' onerror="this.style.display=\'none\';'
         'this.nextElementSibling.style.display=\'flex\';">'
         '<div style="display:none;align-items:center;justify-content:center;'
@@ -679,9 +714,11 @@ def _button_gif(filename: str, caption: str) -> str:
         'text-align:center;padding:.5rem;'
         'border:1px dashed var(--border-color-primary,#cbd5e1);">'
         'Animation coming soon</div>'
-        '<figcaption style="margin-top:.5rem;text-align:center;font-size:.85rem;'
-        'font-weight:600;color:var(--body-text-color);">'
-        f'{html.escape(caption)}</figcaption></figure>'
+        # Spills into the gap between the two columns, so a caption takes two
+        # lines on a PC instead of three.
+        '<figcaption style="margin:.5rem -.4rem 0;text-align:center;font-size:.82rem;'
+        'color:var(--body-text-color);">'
+        f'{caption_html}</figcaption></figure>'
     )
 
 
@@ -734,6 +771,22 @@ def _step_header(number: int, title: str, hint: str = "") -> str:
         'font-size:.82rem;font-weight:700;color:#fff;background:#3b82f6;">'
         f'{number}</span><div><div style="font-weight:700;font-size:1.02rem;">'
         f'{html.escape(title)}</div>{sub}</div></div>'
+    )
+
+
+_INFO_ICON = (
+    '<svg viewBox="0 0 16 16" aria-hidden="true" style="flex:none;width:1em;'
+    'height:1em;margin-top:.1em;"><circle cx="8" cy="8" r="7" fill="none" '
+    'stroke="currentColor" stroke-width="1.5"/><path d="M8 7v4.5M8 4.5v.01" '
+    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+)
+
+
+def _step_note(text: str) -> str:
+    return (
+        '<div style="display:flex;align-items:flex-start;gap:.4rem;'
+        'margin:-.4rem 0 0 2.3rem;font-size:.88rem;opacity:.75;">'
+        f'{_INFO_ICON}<span>{html.escape(text)}</span></div>'
     )
 
 
@@ -877,6 +930,14 @@ _OV_VIEWER_IFRAME = (
     '<iframe id="urdf-viewer" src="/viewer?yaw=180" '
     f'style="width:100%;height:{_OV_TILE_H}px;border:none;'
     'border-radius:8px;background:#1a1a2e;"></iframe>'
+)
+
+# The calibration popup's check step: the same view as the Overview's, only
+# put in the page while that step shows, so a closed popup polls nothing.
+_CALIB_VIEWER_IFRAME = (
+    '<iframe src="/viewer?yaw=180" '
+    'style="width:100%;height:260px;border:none;display:block;'
+    'border-radius:12px;background:#1a1a2e;"></iframe>'
 )
 
 # Row separator — a hairline in the theme's own border colour, not the dark
@@ -1049,16 +1110,98 @@ _SOUND_CUES = (
      f"{_cue_icon((10, 10, 10))}<div><b>Three beeps</b>: something went wrong with the recording.</div>"),
 )
 
-# Above the button animations on Test Recording: what the LED and the beeps mean.
-_TR_HOWTO_HTML = (
-    "<div class='tr-howto'>"
-    "<b>Wait for the start and stop signals:</b>"
-    "<div class='ov-cues'>"
-    f"{_ramp_icon(True)}<div>Rising beep after the first press, LED stops blinking: <b>recording started</b>.</div>"
-    f"{_ramp_icon(False)}<div>Falling beep after the second press: <b>recording stopped</b>.</div>"
-    f"{_cue_icon((10,))}<div>Last beep, LED stops blinking: muxing done, <b>ready</b> for another episode.</div>"
-    "</div></div>"
+# Test Recording: the title above the button animations, and under each one
+# what the LED and the beeps say.
+_TR_HOWTO_HTML = "<div class='tr-howto-title'>Wait for the start and stop signals</div>"
+
+# The "Signal" buttons under the animations play the cue the device will make.
+# A gradio button holds text only, so the ear and the cue are CSS masks, drawn
+# like _ramp_icon/_cue_icon and painted in the button's own text colour.
+def _css_mask(svg: str) -> str:
+    return f'url("data:image/svg+xml,{quote(svg)}")'
+
+
+_EAR_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
+    " stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    "<path d='M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0'/>"
+    "<path d='M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4'/></svg>"
 )
+_START_SIGNAL_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 20'>"
+    "<polygon points='4,18 28,18 28,2'/></svg>"
+)
+# Falling + one beep, the "+" and the dot sized like the ramp beside them.
+_STOP_SIGNAL_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 20'>"
+    "<polygon points='4,2 4,18 28,18'/>"
+    "<rect x='37' y='9' width='10' height='2'/><rect x='41' y='5' width='2' height='10'/>"
+    "<circle cx='60' cy='10' r='3.5'/></svg>"
+)
+_TR_SIGNAL_CSS = f"""
+#tr-page .tr-howto-title {{
+    margin: .25rem 0 .25rem;
+    text-align: center;
+    font-size: 1.05rem;
+    font-weight: 700;
+}}
+/* Sits right under its caption: no stretched column pushing it down. */
+#tr-page .tr-gif-col {{
+    gap: 0 !important;
+    justify-content: flex-start !important;
+}}
+#tr-page .tr-gif-col > * {{
+    flex-grow: 0 !important;
+}}
+/* Grey, and shaped like the camera chips below it. */
+#tr-page button.tr-signal {{
+    align-self: center !important;
+    width: auto !important;
+    min-width: 0 !important;
+    flex: none !important;
+    gap: .4rem !important;
+    /* Close to its caption, clear of what follows (the chips on a PC, the
+       stop animation on a phone). */
+    margin: .35rem 0 1.25rem !important;
+    padding: .3rem .7rem !important;
+    border-radius: 999px !important;
+    border: 1px solid #94a3b855 !important;
+    background: #94a3b822 !important;
+    color: var(--body-text-color) !important;
+    font-size: .82rem !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+}}
+#tr-page button.tr-signal:hover {{
+    background: #94a3b844 !important;
+}}
+#tr-page .tr-signal::before,
+#tr-page .tr-signal::after {{
+    content: "";
+    display: inline-block;
+    height: 1.1em;
+    background-color: currentColor;
+    -webkit-mask: var(--tr-icon) no-repeat center / contain;
+    mask: var(--tr-icon) no-repeat center / contain;
+}}
+#tr-page .tr-signal::before {{
+    width: 1.1em;
+    --tr-icon: {_css_mask(_EAR_SVG)};
+}}
+#tr-page .tr-signal-start::after {{
+    width: 1.76em;
+    --tr-icon: {_css_mask(_START_SIGNAL_SVG)};
+}}
+#tr-page .tr-signal-stop::after {{
+    width: 3.96em;
+    --tr-icon: {_css_mask(_STOP_SIGNAL_SVG)};
+}}
+"""
+# Built from the icons above, so it joins MODAL_CSS only here (the app mounts
+# MODAL_CSS on its own, see app/main.py).
+MODAL_CSS += _TR_SIGNAL_CSS
+# How long the stop button waits between the falling cue and the beep.
+_TR_STOP_SIGNAL_GAP_S = 1.0
 
 
 def _mute_classes(level: int) -> list[str]:
@@ -1528,40 +1671,46 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
 
     # ── Calibration prompt (Overview + Test Recording) ────────────────
 
-    # The Close button is shown and hidden with a class, never with `visible`:
-    # gradio 6 drops a visible=False -> True update often enough that it would
-    # sometimes never appear.
-    def _calib_done_btn(shown: bool):
-        return gr.update(elem_classes=["gb-calib-done"]
+    # The popup's two phases (set up and run, then check) are shown and hidden
+    # with a class, never with `visible`: gradio 6 drops a visible=False -> True
+    # update often enough that one would sometimes never appear.
+    def _calib_phase(shown: bool):
+        return gr.update(elem_classes=["gb-calib-phase"]
                          + ([] if shown else ["gb-calib-gone"]))
 
+    def _calib_setup():
+        """The popup on a clean slate: steps 1-2, no message from a previous
+        run, no live model. Outputs: setup, check, run button, message, viewer."""
+        return (_calib_phase(True), _calib_phase(False),
+                gr.update(value="Start calibration", interactive=True),
+                "", "")
+
     def on_calibrate_open():
-        """Open the popup on a clean slate: no message from a previous run."""
-        return (gr.update(visible=True),
-                gr.update(value="Start calibration", variant="primary",
-                          interactive=True),
-                "", _calib_done_btn(False))
+        return (gr.update(visible=True),) + _calib_setup()
+
+    def on_calibrate_close():
+        return gr.update(visible=False), ""
 
     def on_calibrate_start():
         return gr.update(value="Calibrating…", interactive=False)
 
     def on_calibrate():
         """Run it, and drop the warning at once rather than on the next poll.
-        Once calibrated, Close takes over as the main button."""
+        Once calibrated, the popup moves on to checking the result live."""
         res = client.calibrate()
         if "error" in res:
-            return (gr.update(value="Start calibration", variant="primary",
-                              interactive=True),
-                    f"⛔ {res['error']}", gr.update(), _calib_done_btn(False))
-        return (gr.update(value="Calibrate again", variant="secondary",
-                          interactive=True),
-                "✓ **Your device is calibrated.**",
-                gr.update(visible=bool(res.get("needs_calibration"))),
-                _calib_done_btn(True))
+            return (gr.update(), gr.update(),
+                    gr.update(value="Start calibration", interactive=True),
+                    f"⛔ {res['error']}", gr.update(), gr.update())
+        return (_calib_phase(False), _calib_phase(True),
+                gr.update(value="Start calibration", interactive=True),
+                "", _CALIB_VIEWER_IFRAME,
+                gr.update(visible=bool(res.get("needs_calibration"))))
 
     def _calibration_prompt(warning: str | None, elem_id: str | None = None):
         """The "Calibrate my device" button (right after `warning`, in one
-        callout, when given) and the two-step popup it opens. Returns the box
+        callout, when given) and the popup it opens: two steps to calibrate,
+        then a third to check the 3D model follows the gripper. Returns the box
         holding the button, hidden until the device says it needs calibrating —
         the caller's poll shows it — and a function that makes any other button
         open the same popup (the Overview's "Recalibrate").
@@ -1581,34 +1730,55 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                             'Calibrate my device</div>')
                     close_btn = gr.Button("✕", size="sm", scale=0,
                                           elem_classes="gb-calib-close")
-                gr.HTML(_step_header(
-                    1, "Open the gripper fully",
-                    "Open the fingers all the way, until they are against "
-                    "their stop.",
-                ))
-                gr.HTML(_calibration_figure())
-                gr.HTML(_step_header(
-                    2, "Calibrate the sensors",
-                    "Keep the gripper fully open while it runs.",
-                ))
-                msg = gr.Markdown("")
-                with gr.Row(elem_classes="gb-calib-actions"):
-                    done_btn = gr.Button(
-                        "Close", variant="primary", scale=0, min_width=0,
-                        elem_classes=["gb-calib-done", "gb-calib-gone"])
-                    run_btn = gr.Button("Start calibration", variant="primary",
-                                        scale=0, min_width=0,
-                                        elem_classes="gb-calib-run")
+                with gr.Column(elem_classes="gb-calib-phase") as setup:
+                    gr.HTML(_step_header(
+                        1, "Open the gripper fully",
+                        "Open the fingers all the way, until they are against "
+                        "their stop.",
+                    ))
+                    gr.HTML(_calibration_figure())
+                    gr.HTML(_step_header(
+                        2, "Calibrate the sensors",
+                        "Keep the gripper fully open while it runs.",
+                    ))
+                    msg = gr.Markdown("")
+                    with gr.Row(elem_classes="gb-calib-actions"):
+                        run_btn = gr.Button("Start calibration",
+                                            variant="primary", scale=0,
+                                            min_width=0,
+                                            elem_classes="gb-calib-run")
+                with gr.Column(elem_classes=["gb-calib-phase",
+                                             "gb-calib-gone"]) as check:
+                    gr.HTML(_step_header(
+                        3, "Check the result",
+                        "Move the moving parts of the gripper: the position "
+                        "of the 3D model should match your device.",
+                    ))
+                    gr.HTML(_step_note(
+                        "The model only updates twice a second, so it moves "
+                        "in small jumps."))
+                    viewer = gr.HTML("")
+                    with gr.Row(elem_classes="gb-calib-actions"):
+                        done_btn = gr.Button("All good, close",
+                                             variant="primary", scale=0,
+                                             min_width=0)
+                        again_btn = gr.Button("Calibrate again", scale=0,
+                                              min_width=0)
+
         def bind_open(btn: gr.Button) -> None:
             btn.click(fn=on_calibrate_open,
-                      outputs=[modal, run_btn, msg, done_btn], queue=False)
+                      outputs=[modal, setup, check, run_btn, msg, viewer],
+                      queue=False)
 
         bind_open(open_btn)
         for _btn in (close_btn, done_btn):
-            _btn.click(fn=lambda: gr.update(visible=False), outputs=modal,
+            _btn.click(fn=on_calibrate_close, outputs=[modal, viewer],
                        queue=False)
+        again_btn.click(fn=_calib_setup,
+                        outputs=[setup, check, run_btn, msg, viewer],
+                        queue=False)
         run_btn.click(fn=on_calibrate_start, outputs=run_btn, queue=False).then(
-            fn=on_calibrate, outputs=[run_btn, msg, box, done_btn])
+            fn=on_calibrate, outputs=[setup, check, run_btn, msg, viewer, box])
         return box, bind_open
 
     def poll_calibration():
@@ -2290,6 +2460,22 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         res = client.test_sound(cue)
         return _sound_note(res) if "error" in res else ""
 
+    def _wait_sound_done():
+        deadline = time.monotonic() + _SOUND_TEST_TIMEOUT_S
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            st = client.get_sound()
+            if st is None or not st.get("testing"):
+                return
+
+    def on_stop_signal_play():
+        """The stop as a take makes it: the falling cue, then the saved beep."""
+        if "error" in client.test_sound("capture_stop"):
+            return
+        _wait_sound_done()
+        time.sleep(_TR_STOP_SIGNAL_GAP_S)
+        client.test_sound("capture_saved")
+
     with gr.Blocks(title="Grabette", css=MODAL_CSS, head=NAV_HEAD) as demo:
         gr.Navbar(main_page_name="Overview", elem_id="grabette-nav")
         _title_bar()
@@ -2493,12 +2679,24 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 # side in the narrow card, high enough that a phone wraps
                 # them onto two rows instead of shrinking them to thumbnails.
                 with gr.Row(equal_height=True):
-                    with gr.Column(scale=1, min_width=200):
-                        gr.HTML(_button_gif("start-recording.gif",
-                                            "Press to start and wait\n for the LED to stop blinking"))
-                    with gr.Column(scale=1, min_width=200):
-                        gr.HTML(_button_gif("stop-recording.gif",
-                                            "Press again to stop"))
+                    with gr.Column(scale=1, min_width=200,
+                                   elem_classes="tr-gif-col"):
+                        gr.HTML(_button_gif(
+                            "start-recording.gif", "Start signal",
+                            "<b>Press</b> to start, wait for the <b>rising beep</b> and for "
+                            "the LED to <b>stop blinking</b>."))
+                        tr_start_signal_btn = gr.Button(
+                            "Signal:", size="sm",
+                            elem_classes=["tr-signal", "tr-signal-start"])
+                    with gr.Column(scale=1, min_width=200,
+                                   elem_classes="tr-gif-col"):
+                        gr.HTML(_button_gif(
+                            "stop-recording.gif", "Stop signal",
+                            "<b>Press</b> again to stop, and wait for the <b>last</b> beep "
+                            "and the LED to be <b>off</b>."))
+                        tr_stop_signal_btn = gr.Button(
+                            "Signal:", size="sm",
+                            elem_classes=["tr-signal", "tr-signal-stop"])
                 tr_cameras = gr.HTML("")
                 tr_state = gr.HTML(_tr_pill("idle", "Waiting for the button"))
                 tr_calib_box, _ = _calibration_prompt(None)
@@ -2567,6 +2765,9 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                         + _FLEET_BUTTON_HTML.format(url=settings.relay_url))
 
         # ── Wire events ───────────────────────────────────────────────
+        tr_start_signal_btn.click(fn=lambda: client.test_sound("capture_start"),
+                                  outputs=None)
+        tr_stop_signal_btn.click(fn=on_stop_signal_play, outputs=None)
         tr_poll_timer.tick(
             fn=poll_test_recording, inputs=tr_flow,
             outputs=[tr_state, tr_cameras, tr_summary, tr_check_btn,
