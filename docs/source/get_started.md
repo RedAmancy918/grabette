@@ -16,7 +16,7 @@ To power on, press the button once, then press it a second time and hold it unti
 
 <img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/turn_on.gif" alt="Powering on a Grabette" width="400" style="display: block; margin: 0 auto;"/>
 
-To power off, use the **Power off** button in the [dashboard](#dashboard)'s title bar, or power the device off from the [Fleet Space](./data_collection.md#grabette-fleet).
+To power off, use the **Power off** button in the [dashboard](#dashboard)'s title bar, or the power button next to the device in the [Fleet Space](./data_collection.md#grabette-fleet).
 
 ### Charging
 
