@@ -6,6 +6,10 @@ Real data is recorded through the **Grabette Fleet** Space: it organizes recordi
 
 **[pollen-robotics/grabette-fleet](https://huggingface.co/spaces/pollen-robotics/grabette-fleet)**
 
+<video controls preload="metadata" src="https://huggingface.co/spaces/pollen-robotics/grabette-fleet/resolve/main/static/tutorial-space.mp4"></video>
+
+Before you start: power on your Grabette, sign it in to Hugging Face from its [dashboard](./get_started.md#signing-in-to-hugging-face), and sign in to the Fleet Space with the same account.
+
 An operator dashboard and command broker for your devices. From the Space you:
 
 - create **tasks** and open recording **sessions** for them;
@@ -26,20 +30,29 @@ The rest of the page has two tabs: **1. Record** and **2. Build dataset**.
 
 A task is the natural-language description of what you demonstrate, such as *"put the red cube in the blue box"*. It follows each episode into the LeRobot dataset.
 
-In the **Record** tab, **Tasks** lists the tasks on your devices with their number of episodes. **Create task** adds one, and each task can be edited or deleted.
+In the **Record** tab, **Tasks** lists the tasks on your devices with their number of episodes. **Create task** adds one: give it a name, an optional description, then **Validate task**. Each task can be edited or deleted.
 
 ### Start a session
 
 1. In the **Record** tab, select the task to record.
 2. Select the devices to use, then **Launch session**. One session runs at a time.
 
-The session panel has a record button, which starts and stops a recording like the device's button, and **Delete last episode** for a bad take. It counts the episodes recorded, lets you turn the audio signal on or off, and runs a [Trajectory check](#grabette-fleet) on the last episodes. **Close session** when you are done.
+The session panel has:
+
+- a record button, which starts and stops a recording like the device's button;
+- **Delete last episode**, for a bad take;
+- the number of episodes recorded, and an **Audio signal** switch: a chime every 10 episodes;
+- **Trajectory check**: pick the last 1 to 5 episodes and **Run check**, to see whether SLAM can compute their trajectory. Recording pauses while it runs.
+
+**Close session** when you are done.
 
 <img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/fleet-session.png" alt="A recording session in the Fleet Space" width="500" style="display: block; margin: 0 auto;"/>
 
 ### Start and stop a recording
 
-Press the button on the device to start a recording, and press it again to stop. You can also use the recording button available on the page. 
+Press the button on the device to start a recording, and press it again to stop. The record button in the [session](#start-a-session) does the same.
+
+When no episode was recorded in the last 30 seconds, the cameras first initialize: wait for the LED to stop blinking and the beep, or for the session's *Initializing* message to disappear, before you start the motion.
 
 The button's LED shows the device's state:
 
@@ -52,7 +65,7 @@ The button's LED shows the device's state:
 | 1 pulse, pause, repeat | Busy uploading or converting data — recording is refused until it finishes |
 | 3 pulses, pause, repeat | Hardware fault — the device refuses to record |
 
-If a speaker is fitted, the device also beeps — set the volume, or mute it, on the dashboard's [Overview](./get_started.md#overview): an **ascending** beep when the recording actually starts (after the warm-up, not when you press), and a **descending** beep when it stops. Wait for the first beep, or the solid LED, before you start the motion.
+If a speaker is fitted, the device also beeps — set the volume, or mute it, on the dashboard's [Overview](./get_started.md#overview): an **ascending** beep when the recording actually starts (after the warm-up, not when you press). When you stop, a first beep marks the end of the recording, and a second one when the episode is saved.
 
 ### Build the LeRobot dataset
 
@@ -62,15 +75,23 @@ In the **Build dataset** tab:
 2. Name the destination dataset, under your account, and tick **Private** if needed.
 3. **Generate LeRobot dataset**.
 
-The devices upload their episodes to the Hub, and the [SLAM Space](https://huggingface.co/spaces/pollen-robotics/grabette-slam) turns them into the LeRobot dataset.
+The devices upload their episodes to the Hub, then the [SLAM Space](https://huggingface.co/spaces/pollen-robotics/grabette-slam) turns them into the LeRobot dataset. Both steps show their progress and can take several minutes; **Cancel** stops the build.
+
+When it's done, the dataset is on your Hugging Face account: **Visualize this dataset**, on its page, opens it in the [LeRobot visualizer](https://huggingface.co/spaces/lerobot/visualize_dataset).
 
 <img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/fleet-build-dataset.png" alt="The Build dataset tab of the Fleet Space" width="500" style="display: block; margin: 0 auto;"/>
 
-#### The SLAM Space
+#### The SLAM Space (advanced)
+
+<Tip>
+
+You don't need to open this Space: the Fleet Space runs it for you when you generate a dataset. This section is for information, or for advanced users who want to run it themselves.
+
+</Tip>
 
 **[pollen-robotics/grabette-slam](https://huggingface.co/spaces/pollen-robotics/grabette-slam)**
 
-The SLAM Space takes a raw Grabette recording that lives on the Hub and gives you back a [LeRobot](https://github.com/huggingface/lerobot) dataset, pushed under your own account. The Fleet Space triggers it for you; it can also be used on its own:
+The SLAM Space takes a raw Grabette recording that lives on the Hub and gives you back a [LeRobot](https://github.com/huggingface/lerobot) dataset, pushed under your own account. To use it on its own:
 
 1. Sign in with Hugging Face.
 2. Give it a **source** `repo_id` — the raw recording dataset uploaded through the Fleet Space — a **target** `repo_id` to create, and a task description.
@@ -98,50 +119,35 @@ The `-test` variants of the Spaces are development deployments. Use the ones lin
 
 ## Guidelines for recording a dataset
 
-A policy reproduces the *statistics* of your demonstrations. It keeps the variation it can predict from what the camera sees, and **averages** the variation it can't. Two rules follow, and almost every recording mistake breaks one of them:
+<video controls preload="metadata" src="https://huggingface.co/spaces/pollen-robotics/grabette-fleet/resolve/main/static/tutorial-episode.mp4"></video>
 
-1. **Be consistent** where the camera can't tell your intent — stylistic choices. Variation there gets averaged into one compromise, often worse than any demonstration you gave.
-2. **Be diverse** where you need the policy to generalize, and the cause is visible to the camera.
+A policy reproduces your demonstrations, mistakes included, and the trajectory comes from SLAM on the cameras. Six rules:
 
-### Be consistent
+### 1. Good texture, nothing blocking the cameras
 
-- **Grasp angle** — pick one natural, easy angle and stay within about ±10° of it. Grasping the same object from very different angles makes the policy average them into a bad grasp.
-- **Reach decisively** — drive the object deep into the jaw in one continuous motion. A gentle settle as the fingers touch teaches the policy to stall short of the object.
-- **Close firmly** — one committed close. The policy imitates hesitation, and ends up touching without grasping.
-- **Move smoothly, at a steady pace** — no jitter, no micro-corrections. Shaky demonstrations give an erratic policy.
+SLAM tracks visual landmarks across frames to compute the Grabette's motion. Choose a scene with texture, and tasks whose objects don't block the cameras from below. Don't let the object fill the view as you grasp and lift it: that is the most common cause of tracking loss.
 
-### Be diverse
+### 2. Enough contrast and good exposure
 
-- **Object position** — cover the whole workspace you'll use the policy in. It only works where it has seen the object.
-- **Object orientation** — only if your grasp follows the object's orientation; otherwise it's a free angle choice in disguise.
-- **Start poses** you'll actually encounter.
-- **Lighting, above all** — one recording session captures exactly one lighting condition, and a change at deployment degrades the policy. Record batches at different times of day, with blinds open and closed, lights on and off. Hard shadows and sun patches can't be covered by training augmentation, only by data.
+The scene is seen by the wide-angle RGB camera on top. Make sure the object stands out from the background, and that it is well lit.
 
-### Failures and retries
+### 3. Stable background
 
-Record clean, first-try successes by default: a miss-then-fix in an episode teaches the policy to miss. If you want recovery behavior, record it on purpose — about 10 % of the episodes, with misses in varied directions, and a failure the camera can see.
+Avoid people or objects moving in the background: the only thing that moves should be the object you manipulate. Keep the lighting stable while you record.
 
-### Keep the SLAM tracking
+### 4. Start simple, then increase complexity
 
-The trajectory is recovered by SLAM from the camera, which needs to see the static scene. When it can't, the trajectory jumps, and it's usually the grasp — the most important part — that is lost.
+Start with the same setup, the same object and the same manipulation. After a few episodes, vary the object's position, then the environment — including the lighting across sessions (time of day, blinds, lights): the policy only works in conditions it has seen.
 
-- **Don't let the object fill the camera** as you grasp and lift it. Keep some background in view. This is the most common cause of tracking loss.
-- **No fast swings** — motion blur and large jumps between frames lose the tracking.
+### 5. Fluid movements
 
-### Record what the robot can do
+- Move smoothly, at a natural rhythm: no jitter, no fast swings.
+- Keep one natural grasp angle, within about ±10°.
+- Reach decisively, so the object sits deep in the gripper, and open and close the gripper firmly.
+- Stay within what the robot can do: modest, central lifts, and a hand speed of about 0.5 m/s at most.
 
-The hand-held device has no joint limits and no speed limit; the robot arm has both, and the policy can't see them. Keep lifts modest and central, and keep your hand speed moderate — around 0.5 m/s at most.
+### 6. No failures
 
-### Checklist
-
-- [ ] One natural grasp angle, within ±10°.
-- [ ] Reach through, to seat the object deep in the jaw.
-- [ ] A firm, decisive close.
-- [ ] Smooth motion at a steady pace, no fast swings.
-- [ ] The object never fills the camera view.
-- [ ] Varied object positions — and orientations only if the grasp follows them.
-- [ ] Varied lighting across sessions.
-- [ ] Modest, central lifts; hand speed around 0.5 m/s at most.
-- [ ] Clean first-try successes, no accidental misses.
+Don't record failed manipulations: the policy would learn them. Delete a bad take right away with **Delete last episode** in the [session](#start-a-session).
 
 The [full recording guide](https://github.com/pollen-robotics/grabette/blob/develop/integrations/DiffusionPolicy/recording_demonstrations_guide.md) explains each rule and the failure it prevents.
