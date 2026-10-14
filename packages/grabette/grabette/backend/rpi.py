@@ -93,6 +93,7 @@ class RpiBackend(Backend):
         self._capturing = False
         self._starting = False
         self._stopping = False  # True during stop_capture teardown (drives the fast-blink LED)
+        self._finalizing = False  # True from a stop until its deferred writes are done
         # True while the OAK-D device is being brought up (init in progress).
         # Distinguishes the normal warm-up window from a genuine init failure
         # so the UI can show "Starting…" instead of "Error".
@@ -881,6 +882,7 @@ class RpiBackend(Backend):
         # moment. call_soon schedules the callback right after this coroutine
         # returns, on the same event loop — the caller (button listener /
         # REST endpoint) sees stop_capture complete immediately.
+        self._finalizing = True
         loop.call_soon(
             self._finalize_and_reinit,
             episode_dir, frame_timestamps, angle_samples, meta, urdf_path,
@@ -964,6 +966,9 @@ class RpiBackend(Backend):
                 self._speaker.play_saved()
             else:
                 self._speaker.play_error()
+        # The episode is on disk and its cue is out: a waiting goal cue may go
+        # (see app.main._play_goal_when_saved). The re-init below is for the next take.
+        self._finalizing = False
 
         _t = time.monotonic()
         try:
@@ -1028,6 +1033,10 @@ class RpiBackend(Backend):
     @property
     def is_stopping(self) -> bool:
         return self._stopping
+
+    @property
+    def is_finalizing(self) -> bool:
+        return self._finalizing
 
     def _note_angle_output(self, angle_samples) -> None:
         """Record whether the finished recording actually produced angle data.
