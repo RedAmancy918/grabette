@@ -31,7 +31,7 @@ You use the [Bluetooth tool](https://pollen-robotics.github.io/grabette/) **once
 Open it in Chrome or Edge, on a computer or an Android phone, and follow its steps:
 
 1. **WiFi setup** — connect to the Grabette, scan for networks, pick yours and enter its password.
-2. **Calibration** — open the gripper fully and calibrate the sensors. The Grabette won't record until it is calibrated.
+2. **Calibration** — open the gripper fully, start the calibration, then move the gripper: the 3D model should follow it. The Grabette won't record until it is calibrated.
 3. **Dashboard** — the tool gives you the device's address.
 
 Come back to it only to move the Grabette to another WiFi network.
@@ -62,7 +62,7 @@ The landing page.
 
 - **Speaker** — the volume of the recording beeps, a mute button, and **Test sounds** to play them. It says so when no speaker is fitted.
 - **Cameras** — the live image, with an RGB / Depth toggle. Choosing Depth turns the depth camera on if it's off.
-- **3D model** — the gripper, moving with the live finger-joint angles. Open and close it to check if the angle sensors are properly calibrated.
+- **3D model** — the gripper, moving with the live finger-joint angles. Open and close it to check if the angle sensors are properly calibrated, and use **Recalibrate** under it if they aren't.
 - **Device** — hostname, side (left or right hand), IP address and WiFi network, with a **Change network** shortcut.
 - **Health** — battery, temperature and storage used.
 - **Grabette data** — shortcuts to **Test Recording** and **Episodes**.

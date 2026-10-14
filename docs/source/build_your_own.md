@@ -64,12 +64,8 @@ Both install targets can be re-run if something looks wrong, with two caveats: r
 
 ## Calibrate the angles
 
-Once, before the first recording: open the gripper so that **both joints are fully extended**, then
+Calibrate with the [Bluetooth tool](./get_started.md#first-time-setup-with-the-bluetooth-tool), right after the WiFi setup: open the gripper fully, start the calibration, and check that the 3D model follows the gripper. The Grabette won't record until it is calibrated.
 
-```bash
-cd ~/grabette/packages/grabette
-uv run python scripts/calibrate_angles.py
-sudo reboot
-```
+The dashboard's **Recalibrate** button, under the Overview's 3D model, does the same. Over SSH, `uv run python scripts/calibrate_angles.py` from `packages/grabette` is the fallback.
 
 The device is ready: continue with [Getting started](./get_started.md). If you did the manual install and the WiFi you set at flash time isn't the one you need, the [Bluetooth tool](./get_started.md#first-time-setup-with-the-bluetooth-tool) changes it.
