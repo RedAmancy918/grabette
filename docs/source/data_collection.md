@@ -16,15 +16,26 @@ An operator dashboard and command broker for your devices. From the Space you:
 
 Devices connect outbound with their Hugging Face token; the Space resolves the owner, so you only ever see and control your own devices.
 
-<!-- TODO: screenshot of the Fleet Space. -->
+Each device in the **Fleet** list shows its battery, IP address and WiFi network, with buttons to open its dashboard, sign it out of Hugging Face, power it off, or remove it from the list. Recordings made outside a task, such as test recordings, are counted in a banner: **Sort them** assigns them to a task.
+
+<img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/fleet.png" alt="The Fleet Space: the device list, then the Record tab" width="500" style="display: block; margin: 0 auto;"/>
+
+The rest of the page has two tabs: **1. Record** and **2. Build dataset**.
 
 ### Manage tasks
 
-<!-- TODO: creating, editing and selecting tasks in the Fleet Space. A task is the natural-language description of what is demonstrated, such as "pick up the cup"; it follows each episode into the LeRobot dataset. -->
+A task is the natural-language description of what you demonstrate, such as *"put the red cube in the blue box"*. It follows each episode into the LeRobot dataset.
+
+In the **Record** tab, **Tasks** lists the tasks on your devices with their number of episodes. **Create task** adds one, and each task can be edited or deleted.
 
 ### Start a session
 
-<!-- TODO: how to open, run and close a recording session in the Fleet Space. -->
+1. In the **Record** tab, select the task to record.
+2. Select the devices to use, then **Launch session**. One session runs at a time.
+
+The session panel has a record button, which starts and stops a recording like the device's button, and **Delete last episode** for a bad take. It counts the episodes recorded, lets you turn the audio signal on or off, and runs a [Trajectory check](#grabette-fleet) on the last episodes. **Close session** when you are done.
+
+<img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/fleet-session.png" alt="A recording session in the Fleet Space" width="500" style="display: block; margin: 0 auto;"/>
 
 ### Start and stop a recording
 
@@ -43,11 +54,19 @@ The button's LED shows the device's state:
 
 If a speaker is fitted, the device also beeps — set the volume, or mute it, on the dashboard's [Overview](./get_started.md#overview): an **ascending** beep when the recording actually starts (after the warm-up, not when you press), and a **descending** beep when it stops. Wait for the first beep, or the solid LED, before you start the motion.
 
-### Upload a dataset
-
-<!-- TODO: uploading a session's episodes from the Fleet Space. -->
-
 ### Build the LeRobot dataset
+
+In the **Build dataset** tab:
+
+1. Select the tasks to include.
+2. Name the destination dataset, under your account, and tick **Private** if needed.
+3. **Generate LeRobot dataset**.
+
+The devices upload their episodes to the Hub, and the [SLAM Space](https://huggingface.co/spaces/pollen-robotics/grabette-slam) turns them into the LeRobot dataset.
+
+<img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/fleet-build-dataset.png" alt="The Build dataset tab of the Fleet Space" width="500" style="display: block; margin: 0 auto;"/>
+
+#### The SLAM Space
 
 **[pollen-robotics/grabette-slam](https://huggingface.co/spaces/pollen-robotics/grabette-slam)**
 

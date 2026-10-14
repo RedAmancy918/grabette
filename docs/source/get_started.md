@@ -54,7 +54,7 @@ http://<hostname>.local:8000     # e.g. http://R-grabette.local:8000
 
 The device's IP address works too.
 
-<!-- TODO(after 170/171 merge): add a screenshot of the Overview page. -->
+![The dashboard's Overview page](https://github.com/pollen-robotics/grabette/raw/develop/docs/images/dashboard-overview-page.png)
 
 ### Overview
 
@@ -78,12 +78,12 @@ The Fleet Space and every upload depend on this login.
 
 A guided first recording, to check the whole device before a real session:
 
-1. **Record a few seconds** — press the button and wait for the LED to stop blinking, pick an object up, then press again to stop. The page shows whether each camera is connected, and tells you when to wait and when to press.
+1. **Record a few seconds** — press the button and wait for the start signal (a rising beep, and the LED stops blinking), pick an object up, then press again and wait for the stop signal (the last beep, and the LED turns off). The page shows whether each camera is connected, and tells you when to press.
 2. **Check what was recorded** — a summary, a replay of the RGB and depth video with the angle chart, and a download link.
 3. **Delete it** — a test recording is not training data. If you keep it, it is filed under the *Unassigned* task in **Episodes**.
 4. **Record real data** — sign in to Hugging Face if needed, and open the Fleet Space.
 
-<!-- TODO(after 170/171 merge): add a screenshot of the Test Recording page. -->
+![The dashboard's Test Recording page](https://github.com/pollen-robotics/grabette/raw/develop/docs/images/dashboard-test-recording-page.png)
 
 ### Episodes
 
@@ -96,7 +96,7 @@ Where you review what is on the device.
 - **Download** — the episode as an archive.
 - **Delete**, and **Delete all Grabette data** at the bottom of the page.
 
-<!-- TODO(after 170/171 merge): add a screenshot of the Episodes page. -->
+![The dashboard's Episodes page](https://github.com/pollen-robotics/grabette/raw/develop/docs/images/dashboard-episodes-page.png)
 
 ### Network
 
