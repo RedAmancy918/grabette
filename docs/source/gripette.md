@@ -8,7 +8,24 @@ Gripette shares the [Bill of Materials](https://docs.google.com/spreadsheets/d/e
 
 ## Install
 
-Flash **Raspberry Pi OS Lite (64-bit)** for the Pi Zero 2W, as for [Grabette](./build_your_own.md#flash-the-raspberry-pi), then on the Pi:
+Download `image_<date>-gripetteos-<version>.zip` from the [latest grabette-os release](https://github.com/pollen-robotics/grabette-os/releases/latest) and flash it as for [Grabette](./build_your_own.md#flash-the-raspberry-pi): no Imager settings, WiFi through the Bluetooth tool afterwards, SSH as `pollen` (password `root`). The image has the dependencies, the UART setup and the `gripette` + `gripette-bluetooth` services already in place.
+
+The motors are mounted mirrored, so the hand is read from the **hostname**, which must contain `left` or `right`. The device boots as `gripette-<serial digits>`, and the service waits for a hand until you SSH in and run:
+
+```bash
+sudo hostnamectl set-hostname gripette-right-1f9a2b   # or gripette-left-…
+sudo systemctl restart gripette
+```
+
+The [Bluetooth tool](https://pollen-robotics.github.io/grabette/#wifi) provisions a Gripette's WiFi the same way as a Grabette's — pick Gripette in its device chooser.
+
+Before first use, calibrate the encoders' zero offset: see [calibration](https://github.com/pollen-robotics/grabette/blob/develop/packages/gripette/docs/calibration.md).
+
+The [Gripette README](https://github.com/pollen-robotics/grabette/tree/develop/packages/gripette) covers the gRPC client, the CLI scripts and the motor setup.
+
+### Manual install (stock Raspberry Pi OS)
+
+Only if you don't use the image. Flash **Raspberry Pi OS Lite (64-bit)** for the Pi Zero 2W, as in the [Grabette manual install](./build_your_own.md#manual-install-stock-raspberry-pi-os), then on the Pi:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -22,15 +39,9 @@ make check                       # camera and motor diagnostic
 make install-systemd             # start the service and Bluetooth WiFi setup on boot
 ```
 
-The [Bluetooth tool](https://pollen-robotics.github.io/grabette/#wifi) provisions a Gripette's WiFi the same way as a Grabette's — pick Gripette in its device chooser.
-
-Before first use, calibrate the encoders' zero offset: see [calibration](https://github.com/pollen-robotics/grabette/blob/develop/packages/gripette/docs/calibration.md).
-
-The [Gripette README](https://github.com/pollen-robotics/grabette/tree/develop/packages/gripette) covers the gRPC client, the CLI scripts and the motor setup.
-
 ## Status page
 
-Gripette has no dashboard, but it has a small status page on port **8080**, installed with `make install-web`. It reports whether the service is healthy, shows the live camera at about 1 Hz, and gives you **Restart service** and **Shut down device** buttons. That shutdown button is the clean way to power off a Gripette, which has no power switch.
+Gripette has no dashboard, but it has a small status page on port **8080**, installed with `make install-web` (on the image it is already installed: `sudo systemctl enable --now gripette-web`). It reports whether the service is healthy, shows the live camera at about 1 Hz, and gives you **Restart service** and **Shut down device** buttons. That shutdown button is the clean way to power off a Gripette, which has no power switch.
 
 <Tip warning={true}>
 

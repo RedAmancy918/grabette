@@ -43,6 +43,10 @@ uv run --package grabette python main.py
 
 ### Raspberry Pi
 
+**Recommended: flash the prebuilt image.** Download `image_<date>-grabetteos-<version>.zip` from the [latest grabette-os release](https://github.com/pollen-robotics/grabette-os/releases/latest) and flash it with the Raspberry Pi Imager ("Use custom"; no customisation is possible, none is needed). Then set the WiFi with the [Bluetooth tool](https://pollen-robotics.github.io/grabette/#wifi) and SSH in as `pollen` (password `root`); the hostname is `grabette-<serial digits>`. Everything below (deps, venv, overlays, speaker, NTP, udev rules, systemd services) is already baked in; the image is a right hand with the Gemini 305 by default (edit `/etc/grabette/env` otherwise). Only the [angle calibration](#calibration) is left to do. Details: [Build your own](../../docs/source/build_your_own.md#flash-the-raspberry-pi).
+
+The rest of this section is the **manual install** on a stock Raspberry Pi OS.
+
 Tested on **Raspberry Pi OS Bookworm (Debian 12)** and **Trixie (Debian 13)**. No specific Pi OS version is pinned — the Makefile target uses whatever system Python is at `/usr/bin/python3` (3.11 on Bookworm, 3.13 on Trixie).
 
 #### Prerequisites

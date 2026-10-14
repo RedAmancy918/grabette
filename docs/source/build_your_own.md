@@ -12,7 +12,17 @@ Grabette is built from off-the-shelf parts, 3D-printed components and a Raspberr
 
 ## Flash the Raspberry Pi
 
-Flash **Raspberry Pi OS Lite (64-bit)** onto an SD card with the [Raspberry Pi Imager](https://www.raspberrypi.com/software/), setting a hostname (for example `R-grabette`), the user **`rasp`** (the install targets and the systemd service expect that name), your WiFi credentials, and enabling SSH. Both Bookworm and Trixie are tested.
+Download `image_<date>-grabetteos-<version>.zip` from the [latest grabette-os release](https://github.com/pollen-robotics/grabette-os/releases/latest). It is Raspberry Pi OS Lite (64-bit) with everything the manual install below does already baked in: dependencies, virtualenv, hardware overlays, speaker, udev rules for both depth cameras, and the `grabette` + `grabette-bluetooth` services enabled.
+
+Flash it with the [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (**Use custom**). The Imager can't customise a custom image, and nothing needs setting: on first boot the device names itself `grabette-<serial digits>`, and SSH is already enabled for the user `pollen` (password `root`, change it with `passwd`).
+
+Then power it on and put it on your WiFi with the [Bluetooth tool](./get_started.md#first-time-setup-with-the-bluetooth-tool).
+
+The image is a **right hand** with the **Gemini 305** by default. For a left hand, or an OAK-D SR, SSH in and edit `/etc/grabette/env` (`GRABETTE_HAND=left`, and add `GRABETTE_DEPTH_CAMERA=oakd`), then `sudo systemctl restart grabette`. Then go straight to [Calibrate the angles](#calibrate-the-angles).
+
+### Manual install (stock Raspberry Pi OS)
+
+Only if you don't use the image. Flash **Raspberry Pi OS Lite (64-bit)** instead, setting a hostname (for example `R-grabette`), the user **`pollen`** (the install targets and the systemd service expect that name), your WiFi credentials, and enabling SSH. Both Bookworm and Trixie are tested.
 
 SSH into the Pi and install:
 
@@ -42,7 +52,7 @@ If the logs later say `No RPi hardware, using MockBackend` instead of `RPi hardw
 
 </Tip>
 
-## Start the services
+Then start the services:
 
 ```bash
 make install-systemd    # start on boot
@@ -57,8 +67,9 @@ Both install targets can be re-run if something looks wrong, with two caveats: r
 Once, before the first recording: open the gripper so that **both joints are fully extended**, then
 
 ```bash
+cd ~/grabette/packages/grabette
 uv run python scripts/calibrate_angles.py
 sudo reboot
 ```
 
-The device is ready: continue with [Getting started](./get_started.md). If the WiFi you set at flash time isn't the one you need, the [Bluetooth tool](./get_started.md#first-time-setup-with-the-bluetooth-tool) changes it.
+The device is ready: continue with [Getting started](./get_started.md). If you did the manual install and the WiFi you set at flash time isn't the one you need, the [Bluetooth tool](./get_started.md#first-time-setup-with-the-bluetooth-tool) changes it.

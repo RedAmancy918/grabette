@@ -36,6 +36,10 @@ uv run --package gripette python main.py
 
 ### Raspberry Pi Zero 2W
 
+**Recommended: flash the prebuilt image.** Download `image_<date>-gripetteos-<version>.zip` from the [latest grabette-os release](https://github.com/pollen-robotics/grabette-os/releases/latest) and flash it with the Raspberry Pi Imager ("Use custom"; no customisation is possible). Then set the WiFi with the [Bluetooth tool](https://pollen-robotics.github.io/grabette/#wifi), SSH in as `pollen` (password `root`), and give it a hostname containing `left` or `right`, from which the hand is read: `sudo hostnamectl set-hostname gripette-right-1f9a2b && sudo systemctl restart gripette`. Deps, UART, crash hardening and the systemd services are already baked in; only the [calibration](#calibration) is left to do.
+
+The rest of this section is the **manual install** on a stock Raspberry Pi OS.
+
 ####  Prerequisites
 A  Pi Zero 2W running Raspberry Pi OS (Bookworm or Trixie), with [uv](https://docs.astral.sh/uv/) installed :
 

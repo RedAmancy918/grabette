@@ -97,7 +97,10 @@ uv run --package grabette python packages/grabette/main.py   # run a service (mo
 > - `integrations/DiffusionPolicy` is deliberately **standalone** (own
 >   `uv.lock`, heavy training pins) — inside it a plain `uv sync` is correct.
 
-**On-device install (Raspberry Pi):** each device package ships a `make
+**On-device install (Raspberry Pi):** the simplest path is to flash the
+prebuilt `grabetteos` / `gripetteos` image from the
+[latest grabette-os release](https://github.com/pollen-robotics/grabette-os/releases/latest),
+which has everything below baked in. For a manual install, each device package ships a `make
 install-rpi` target that builds the `--system-site-packages` venv `picamera2`
 needs (a bare `uv sync` skips it and the service falls back to the mock
 backend). Follow the package's own README for the exact steps:
