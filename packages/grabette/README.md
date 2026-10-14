@@ -249,8 +249,8 @@ is Pi-4-specific lives in `config/config.txt` and in how the card is addressed:
 
 `make install-audio` (idempotent) does:
 - `apt install device-tree-compiler alsa-utils`;
-- adds `rasp` to the `audio` group (`/dev/snd/*` is `root:audio 0660`, and the
-  daemon runs as `rasp`);
+- adds the service user (the checkout owner, `SERVICE_USER=` to override) to the
+  `audio` group (`/dev/snd/*` is `root:audio 0660`, and the daemon runs as that user);
 - compiles `config/overlays/tlv320aic3104-overlay.dts` → `/boot/firmware/overlays/tlv320aic3104.dtbo`;
 - **checks** (never writes) `/boot/firmware/config.txt` for `dtoverlay=tlv320aic3104`
   and `dtparam=i2s=on`, and tells you exactly which lines are missing — an
@@ -324,7 +324,9 @@ To put the device on WiFi without a screen or SSH, use the BLE setup service —
 
 ## Calibration
 
-Before using Grabette, calibrate the angle sensors. For that, open completely the gripper (Both joints must be fully extended when opening), then run the calibration script:
+Before using Grabette, calibrate the angle sensors. Until it is done the grabette refuses to record (error LED), and the dashboard shows **Your device is not calibrated** with a **Calibrate my device** button, on the Overview and on Test Recording. Click it, open the gripper completely (both joints fully extended, against their stop) and click **Start calibration**. It applies at once, no reboot needed.
+
+Over SSH, the script does the same thing (but needs a restart):
 ```bash
 python3 scripts/calibrate_angles.py
 sudo reboot
