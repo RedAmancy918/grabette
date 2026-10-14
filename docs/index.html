@@ -542,13 +542,6 @@
            text treatment (as .ep-big-num does) so it reads as the headline of
            the card rather than a status line. */
         .conn-line { display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem; }
-        .conn-label {
-            font-size: .72rem;
-            font-weight: 700;
-            color: #8b98ad;
-            letter-spacing: .05em;
-            text-transform: uppercase;
-        }
         .conn-name {
             font-size: 1.05rem;
             font-weight: 800;
@@ -820,10 +813,7 @@
             <div id="connectedBox" hidden>
                 <div class="conn-line">
                     <span class="status-dot status-connected"></span>
-                    <div>
-                        <div class="conn-label">Connected to</div>
-                        <div class="conn-name" id="statusText">—</div>
-                    </div>
+                    <div class="conn-name" id="statusText">—</div>
                 </div>
                 <button class="btn-secondary" id="btnDisconnect" onclick="disconnectDevice()">
                     Disconnect
@@ -835,7 +825,7 @@
 
         <!-- WiFi Configuration — revealed once the BLE link is up. -->
         <div class="card step-card" id="card-wifi" hidden>
-            <div class="step"><span class="step-num">2</span> Configure WiFi</div>
+            <div class="step"><span class="step-num">2</span> Configure its WiFi</div>
             <!-- The scan only ever serves the SSID field, so it sits beside it and
                  its results drop down from it. -->
             <div class="ssid-field">
@@ -873,7 +863,7 @@
              the last step before the dashboard. -->
         <button class="btn-primary next-btn" id="btnToDash" hidden disabled
                 title="Available once your device is on WiFi"
-                onclick="selectTab('calibration')">Next: calibrate →</button>
+                onclick="selectTab('calibration')">Next: Calibrate →</button>
 
         <!-- Not a step: ping and network status are usable at any point once
              connected, so this panel sits outside the numbered flow — and
@@ -1172,7 +1162,7 @@
         document.getElementById('connectPick').hidden = connected;
         document.getElementById('connectedBox').hidden = !connected;
         document.getElementById('step1Title').textContent =
-            connected ? 'Connected device' : 'Select the type of device';
+            connected ? 'Selected device' : 'Select the type of device';
         if (connected) document.getElementById('statusText').textContent = deviceName || '?';
 
         reveal('card-wifi', connected);
