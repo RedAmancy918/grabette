@@ -489,10 +489,12 @@ class HuggingFaceClient:
         episodes: list[tuple[Path, str]],
         repo_id: str,
         private: bool = False,
+        commit_message: str | None = None,
     ) -> None:
         """Upload several episode directories to a dataset repo in ONE commit.
 
-        `episodes` is a list of (episode_dir, path_in_repo). The Hub caps commit
+        `episodes` is a list of (episode_dir, path_in_repo). `commit_message`
+        defaults to naming the episodes. The Hub caps commit
         creation per repo (320/hour at the time of writing), and a commit per
         episode per device blows through it on a single bimanual build of a
         hundred-odd takes. One commit for the whole batch costs one unit of that
@@ -530,7 +532,8 @@ class HuggingFaceClient:
             repo_id=repo_id,
             repo_type="dataset",
             operations=operations,
-            commit_message=f"Upload {len(dests)} episode(s): {', '.join(dests[:5])}"
-                           + ("…" if len(dests) > 5 else ""),
+            commit_message=commit_message
+            or f"Upload {len(dests)} episode(s): {', '.join(dests[:5])}"
+            + ("…" if len(dests) > 5 else ""),
         )
         logger.info("Uploaded %d episode(s) to %s in one commit", len(dests), repo_id)

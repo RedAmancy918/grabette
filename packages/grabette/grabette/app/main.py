@@ -456,7 +456,7 @@ def _is_rate_limited(e: BaseException) -> bool:
 
 
 async def _upload_episode_batch(hf, batch: list[tuple], raw_repo: str, private: bool,
-                                is_cancelled) -> None:
+                                is_cancelled, message: str | None = None) -> None:
     """Upload a batch of (episode_dir, path_in_repo) as ONE Hub commit, bounded
     and retried. Raises on final failure.
 
@@ -501,7 +501,8 @@ async def _upload_episode_batch(hf, batch: list[tuple], raw_repo: str, private: 
         # independent of the event loop. An asyncio future's callback is
         # scheduled ON the loop, so a loop that stops before the thread finishes
         # would leak the stall count permanently.
-        cf = _get_upload_executor().submit(hf.upload_episodes, batch, raw_repo, private)
+        cf = _get_upload_executor().submit(hf.upload_episodes, batch, raw_repo, private,
+                                                 message)
         try:
             await _await_upload(cf, dest, attempt)
             return
@@ -779,8 +780,12 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
                 logger.warning("could not list %s, uploading every episode: %s",
                                raw_repo, _exc_text(e))
 
+        n_batches = -(-len(present) // _UPLOAD_BATCH_EPISODES)
         for start in range(0, len(present), _UPLOAD_BATCH_EPISODES):
             batch = present[start:start + _UPLOAD_BATCH_EPISODES]
+            # Every device commits to the same repo at the same time, so the
+            # role is what tells one device's "batch 1/4" from another's.
+            message = f"batch {start // _UPLOAD_BATCH_EPISODES + 1}/{n_batches} ({role})"
             # Cancellation checkpoint, once per batch. Checked BEFORE the first
             # upload too: the cancel may have landed while this command was still
             # queued behind another one (the relay's worker is serial), in which
@@ -795,7 +800,7 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
             try:
                 await _upload_episode_batch(
                     hf, [(ep_dir, f"{eid}/{role}") for eid, ep_dir in batch],
-                    raw_repo, private, lambda: cancels.is_cancelled(cmd_id))
+                    raw_repo, private, lambda: cancels.is_cancelled(cmd_id), message)
                 uploaded.extend(eid for eid, _ in batch)
             except _CommandCancelled:
                 return {"status": "cancelled", "role": role, "uploaded": uploaded,

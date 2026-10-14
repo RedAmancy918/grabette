@@ -333,6 +333,7 @@ class _Hf:
     def __init__(self, fail_times=0, hang=False, error=None, on_hub=()):
         self.calls = []
         self.commits = []
+        self.messages = []
         self._on_hub = on_hub
         self._fail_times = fail_times
         self._hang = hang
@@ -343,9 +344,10 @@ class _Hf:
             raise self._on_hub
         return {dest for _, dest in episodes if dest in self._on_hub}
 
-    def upload_episodes(self, batch, repo, private):
+    def upload_episodes(self, batch, repo, private, message=None):
         self.calls.extend(dest for _, dest in batch)
         self.commits.append([dest for _, dest in batch])
+        self.messages.append(message)
         if self._hang:
             import time
             time.sleep(0.5)  # outlives the patched attempt timeout, not the suite
@@ -362,7 +364,7 @@ class _Progressing:
         self._tick_s = tick_s
         self.calls = []
 
-    def upload_episodes(self, batch, repo, private):
+    def upload_episodes(self, batch, repo, private, message=None):
         self.calls.extend(dest for _, dest in batch)
         waited = 0.0
         while waited < self._total_s:
@@ -496,7 +498,7 @@ def test_the_stall_clock_starts_at_the_submit(monkeypatch, heartbeat):
         def __init__(self):
             self.calls = []
 
-        def upload_episodes(self, batch, repo, private):
+        def upload_episodes(self, batch, repo, private, message=None):
             self.calls.extend(dest for _, dest in batch)
             time.sleep(0.15)                 # hashing: nothing on the wire yet
             heartbeat.note_hub_activity()    # first bytes
@@ -664,6 +666,7 @@ def test_episodes_share_a_commit_per_batch(tmp_path, monkeypatch):
 
     assert res["status"] == "ok" and res["uploaded"] == ["ep1", "ep2", "ep3"]
     assert hf.commits == [["ep1/left", "ep2/left"], ["ep3/left"]]
+    assert hf.messages == ["batch 1/2 (left)", "batch 2/2 (left)"]
 
 
 def test_a_failed_batch_reports_only_earlier_batches_as_uploaded(tmp_path, monkeypatch):
@@ -673,8 +676,8 @@ def test_a_failed_batch_reports_only_earlier_batches_as_uploaded(tmp_path, monke
     monkeypatch.setattr(main, "_UPLOAD_MAX_ATTEMPTS", 1)
 
     class _SecondFails(_Hf):
-        def upload_episodes(self, batch, repo, private):
-            super().upload_episodes(batch, repo, private)
+        def upload_episodes(self, batch, repo, private, message=None):
+            super().upload_episodes(batch, repo, private, message)
             if len(self.commits) == 2:
                 raise ConnectionResetError("reset")
 
@@ -847,7 +850,7 @@ def test_a_xet_transfer_that_ticks_without_moving_is_abandoned(monkeypatch,
     updater = real_heartbeat._marking_updater(None)
 
     class _Wedged:
-        def upload_episodes(self, batch, repo, private):
+        def upload_episodes(self, batch, repo, private, message=None):
             for _ in range(40):          # 0.8s of ticking, nothing moving
                 time.sleep(0.02)
                 updater(_XetTick(), [])
@@ -869,7 +872,7 @@ def test_a_xet_transfer_that_keeps_moving_is_not_abandoned(monkeypatch,
         def __init__(self):
             self.calls = []
 
-        def upload_episodes(self, batch, repo, private):
+        def upload_episodes(self, batch, repo, private, message=None):
             self.calls.extend(dest for _, dest in batch)
             for _ in range(40):          # 0.8s, >5x the stall budget
                 time.sleep(0.02)
@@ -907,9 +910,10 @@ def test_the_client_puts_a_whole_batch_in_one_commit(tmp_path, monkeypatch):
     monkeypatch.setattr(client, "_get_api", lambda: api)
 
     client.upload_episodes([(tmp_path / "ep1", "ep1/left"), (tmp_path / "ep2", "ep2/left")],
-                           "u/raw")
+                           "u/raw", commit_message="batch 1/1 (left)")
 
     assert len(api.commits) == 1
+    assert api.commits[0]["commit_message"] == "batch 1/1 (left)"
     paths = sorted(op.path_in_repo for op in api.commits[0]["operations"])
     expected = sorted(f"{eid}/left/{p.relative_to(tmp_path / eid).as_posix()}"
                       for eid in ("ep1", "ep2")
