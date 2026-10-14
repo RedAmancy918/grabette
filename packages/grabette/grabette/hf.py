@@ -35,6 +35,11 @@ _HUB_READ_TIMEOUT_S = 60.0
 _HUB_WRITE_TIMEOUT_S = 60.0   # no progress writing a chunk for this long = stalled
 _HUB_POOL_TIMEOUT_S = 20.0
 
+# Files up to this size are compared to the Hub's copy by content when deciding
+# whether an episode is already uploaded; larger ones by size only (see
+# HuggingFaceClient.already_uploaded).
+_HASH_TO_SKIP_MAX_BYTES = 10 * 1024 * 1024
+
 _client_factory_lock = threading.Lock()
 _client_factory_installed = False
 
@@ -428,6 +433,56 @@ class HuggingFaceClient:
         url = f"https://huggingface.co/datasets/{repo_id}/tree/main/{dest}"
         logger.info("Episode %s uploaded to %s", episode_dir.name, url)
         return url
+
+    def already_uploaded(self, episodes: list[tuple[Path, str]], repo_id: str) -> set[str]:
+        """The path_in_repo of every episode whose files are ALL on the Hub already.
+
+        Re-sending them would cost no bytes and no commit, but it would still
+        make upload_episodes sha256 every file first — minutes per episode on a
+        Pi's SD card, during which the device cannot record. One listing of the
+        repo answers it for the whole batch instead.
+
+        Matching is by path, then content wherever that is cheap to know: a small
+        file (calibration, metadata — the ones that DO get rewritten after a
+        recording) is hashed and compared to the Hub's; a large one (a video,
+        written once at capture and never touched again) is compared by size,
+        since hashing it is exactly the cost this exists to avoid.
+        """
+        import hashlib
+
+        from huggingface_hub.utils import (DEFAULT_IGNORE_PATTERNS, RepositoryNotFoundError,
+                                           filter_repo_objects)
+
+        api = self._get_api()
+        try:
+            remote = {f.path: f for f in api.list_repo_tree(repo_id, repo_type="dataset",
+                                                             recursive=True)
+                      if hasattr(f, "blob_id")}   # files only, not RepoFolder
+        except RepositoryNotFoundError:
+            return set()
+
+        def same(local: Path, entry) -> bool:
+            size = local.stat().st_size
+            if size != entry.size:
+                return False
+            if size > _HASH_TO_SKIP_MAX_BYTES:
+                return True
+            data = local.read_bytes()
+            if entry.lfs is not None:
+                return hashlib.sha256(data).hexdigest() == entry.lfs.sha256
+            return hashlib.sha1(b"blob %d\0" % size + data).hexdigest() == entry.blob_id
+
+        done = set()
+        for episode_dir, dest in episodes:
+            root = Path(episode_dir).expanduser().resolve()
+            files = {p.relative_to(root).as_posix(): p
+                     for p in sorted(root.glob("**/*")) if p.is_file()}
+            rels = list(filter_repo_objects(files.keys(), ignore_patterns=DEFAULT_IGNORE_PATTERNS))
+            prefix = dest.strip("/")
+            if rels and all(f"{prefix}/{rel}" in remote
+                            and same(files[rel], remote[f"{prefix}/{rel}"]) for rel in rels):
+                done.add(dest)
+        return done
 
     def upload_episodes(
         self,

@@ -758,6 +758,27 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
                                 f"episode(s) can be converted"),
                     "uploaded": uploaded, "missing": missing, "incomplete": incomplete}
 
+        # Skip what a previous build already put on the Hub, same content. Not
+        # for the bytes or the commit (re-sending would cost neither) but for
+        # the hashing that precedes every upload: minutes per episode on the SD
+        # card, with the device unable to record. Best-effort — if the listing
+        # fails, uploading everything is still correct, just slower.
+        already: list[str] = []
+        if present and not cancels.is_cancelled(cmd_id):
+            try:
+                on_hub = await asyncio.wrap_future(_get_upload_executor().submit(
+                    hf.already_uploaded,
+                    [(ep_dir, f"{eid}/{role}") for eid, ep_dir in present], raw_repo))
+                already = [eid for eid, _ in present if f"{eid}/{role}" in on_hub]
+                present = [(eid, d) for eid, d in present if f"{eid}/{role}" not in on_hub]
+                uploaded.extend(already)
+                if already:
+                    logger.info("%d episode(s) already on %s, not re-uploaded",
+                                len(already), raw_repo)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("could not list %s, uploading every episode: %s",
+                               raw_repo, _exc_text(e))
+
         for start in range(0, len(present), _UPLOAD_BATCH_EPISODES):
             batch = present[start:start + _UPLOAD_BATCH_EPISODES]
             # Cancellation checkpoint, once per batch. Checked BEFORE the first

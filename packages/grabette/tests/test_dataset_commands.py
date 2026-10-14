@@ -330,12 +330,18 @@ async def _awake(*a, **kw):
 class _Hf:
     """Records upload attempts; fails the first `fail_times` of them."""
 
-    def __init__(self, fail_times=0, hang=False, error=None):
+    def __init__(self, fail_times=0, hang=False, error=None, on_hub=()):
         self.calls = []
         self.commits = []
+        self._on_hub = on_hub
         self._fail_times = fail_times
         self._hang = hang
         self._error = error or ConnectionResetError("connection reset by peer")
+
+    def already_uploaded(self, episodes, repo):
+        if isinstance(self._on_hub, Exception):
+            raise self._on_hub
+        return {dest for _, dest in episodes if dest in self._on_hub}
 
     def upload_episodes(self, batch, repo, private):
         self.calls.extend(dest for _, dest in batch)
@@ -679,6 +685,31 @@ def test_a_failed_batch_reports_only_earlier_batches_as_uploaded(tmp_path, monke
     assert res["message"].startswith("upload failed for ep3:")
 
 
+def test_episodes_already_on_the_hub_are_not_uploaded_again(tmp_path, monkeypatch):
+    # Re-sending costs no commit, but it re-hashes every file on the SD card
+    # first — minutes per episode with the device unable to record.
+    for eid in ("ep1", "ep2", "ep3"):
+        _make_episode(tmp_path, eid)
+    hf = _Hf(on_hub={"ep1/left", "ep3/left"})
+
+    res = _run_upload(tmp_path, ["ep1", "ep2", "ep3"], hf, monkeypatch)
+
+    assert res["status"] == "ok"
+    assert hf.commits == [["ep2/left"]]
+    assert sorted(res["uploaded"]) == ["ep1", "ep2", "ep3"], "they ARE in the raw"
+
+
+def test_a_failed_listing_uploads_everything(tmp_path, monkeypatch):
+    for eid in ("ep1", "ep2"):
+        _make_episode(tmp_path, eid)
+    hf = _Hf(on_hub=ConnectionResetError("reset"))
+
+    res = _run_upload(tmp_path, ["ep1", "ep2"], hf, monkeypatch)
+
+    assert res["status"] == "ok"
+    assert hf.commits == [["ep1/left", "ep2/left"]]
+
+
 def test_an_absent_episode_is_still_reported_as_missing(tmp_path, monkeypatch):
     # Absent locally (deleted, never recorded here) stays distinct from present
     # but unconvertible — they need different fixes.
@@ -885,3 +916,65 @@ def test_the_client_puts_a_whole_batch_in_one_commit(tmp_path, monkeypatch):
                       for p in (tmp_path / eid).glob("**/*")
                       if p.is_file() and ".git" not in p.parts)
     assert paths == expected and expected
+
+
+def test_the_client_recognises_what_is_already_on_the_hub(tmp_path, monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+
+    from grabette import hf as hf_module
+
+    def blob(data):
+        return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+    for eid in ("same", "recalibrated", "partial", "big"):
+        (tmp_path / eid).mkdir()
+        (tmp_path / eid / "calib.json").write_bytes(b"new")
+    (tmp_path / "partial" / "video.mp4").write_bytes(b"v" * 20)
+    (tmp_path / "big" / "video.mp4").write_bytes(b"v" * 20)
+    monkeypatch.setattr(hf_module, "_HASH_TO_SKIP_MAX_BYTES", 10)
+
+    def entry(path, data, lfs=False):
+        return SimpleNamespace(
+            path=path, size=len(data), blob_id=blob(data),
+            lfs=SimpleNamespace(sha256=hashlib.sha256(data).hexdigest()) if lfs else None)
+
+    tree = [
+        entry("same/left/calib.json", b"new"),
+        entry("recalibrated/left/calib.json", b"old"),   # same size, other content
+        entry("partial/left/calib.json", b"new"),        # video never made it
+        entry("big/left/calib.json", b"new", lfs=True),
+        entry("big/left/video.mp4", b"x" * 20, lfs=True),  # too big to hash: size only
+        SimpleNamespace(path="same/left"),                 # a folder
+    ]
+
+    class _Api:
+        def list_repo_tree(self, *a, **k):
+            return iter(tree)
+
+    client = hf_module.HuggingFaceClient()
+    monkeypatch.setattr(client, "_get_api", lambda: _Api())
+
+    done = client.already_uploaded(
+        [(tmp_path / eid, f"{eid}/left") for eid in ("same", "recalibrated", "partial", "big")],
+        "u/raw")
+
+    assert done == {"same/left", "big/left"}
+
+
+def test_a_repo_that_does_not_exist_yet_has_nothing_uploaded(tmp_path, monkeypatch):
+    from huggingface_hub.utils import RepositoryNotFoundError
+
+    from grabette import hf as hf_module
+
+    class _Api:
+        def list_repo_tree(self, *a, **k):
+            # Built without __init__: the real one insists on an httpx response.
+            raise RepositoryNotFoundError.__new__(RepositoryNotFoundError)
+
+    client = hf_module.HuggingFaceClient()
+    monkeypatch.setattr(client, "_get_api", lambda: _Api())
+    (tmp_path / "ep1").mkdir()
+    (tmp_path / "ep1" / "f").write_bytes(b"x")
+
+    assert client.already_uploaded([(tmp_path / "ep1", "ep1/left")], "u/raw") == set()
