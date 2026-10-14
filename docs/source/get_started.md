@@ -20,9 +20,13 @@ To power off, use the **Power off** button in the [dashboard](#dashboard)'s titl
 
 ### Charging
 
-<!-- TODO: how to charge the device (connector, charge time, battery indicator). -->
+Plug a USB-C cable into the charging port shown below. The board has several USB-C ports that look alike: use this one.
 
-The battery level is shown on the dashboard's **Overview** page.
+<img src="https://github.com/pollen-robotics/grabette/raw/develop/docs/images/grabette-charging.jpg" alt="The Grabette's USB-C charging port" width="600" style="display: block; margin: 0 auto;"/>
+
+The battery level is shown on the dashboard's **Overview** page and next to the device in the Fleet Space.
+
+<!-- TODO: charge time, and what the battery indicator shows while charging. -->
 
 ## First-time setup with the Bluetooth tool
 
