@@ -50,7 +50,7 @@ _BATTERY_INTERVAL_S = 30.0
 # would only run once that upload had finished — i.e. never cancel anything. These
 # are dispatched immediately, concurrently with whatever is running. Only put
 # command types here that do no hardware work and return fast.
-_FAST_PATH_TYPES = frozenset({"cancel_dataset"})
+_FAST_PATH_TYPES = frozenset({"cancel_dataset", "hold_depth_camera"})
 
 # Hardware-fault text is reported on the heartbeat, i.e. in a query string. The
 # messages name the fault, the consequence and the fix, so they are a sentence or
@@ -132,6 +132,9 @@ class RelayClient:
         # fault into the activity enum would have made it invisible to a fleet
         # that only knows the four activity values.
         fault_provider: Optional[Callable[[], Optional[str]]] = None,
+        # Optional callable returning whether the depth camera is warm, or None
+        # when unknown. Lets the fleet pick a group start's lead.
+        depth_warm_provider: Optional[Callable[[], Optional[bool]]] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token_provider = token_provider
@@ -146,6 +149,7 @@ class RelayClient:
         self.tasks_rev_provider = tasks_rev_provider
         self.activity_provider = activity_provider
         self.fault_provider = fault_provider
+        self.depth_warm_provider = depth_warm_provider
         self._last_reported_rev: Optional[int] = None  # last task revision sent to the fleet
         self._battery: Optional[float] = None  # cached; refreshed off the heartbeat path
         self.status = "offline"
@@ -298,6 +302,13 @@ class RelayClient:
                         # a field that only appears when broken can never say
                         # "fixed". Truncated because it rides in a query string.
                         params["error"] = (fault or "")[:_FAULT_MAX_CHARS]
+                    if self.depth_warm_provider is not None:
+                        try:
+                            warm = self.depth_warm_provider()
+                        except Exception:
+                            warm = None
+                        if warm is not None:
+                            params["depth_warm"] = "true" if warm else "false"
                     try:
                         async with session.post(
                             f"{self.base_url}/api/devices/heartbeat",

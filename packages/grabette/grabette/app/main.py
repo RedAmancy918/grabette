@@ -1002,6 +1002,10 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
         # this when a session opens). No-op/fast when already warm.
         await backend.prepare_capture()
         return {"status": "ok"}
+    if ctype == "hold_depth_camera":
+        # Lease renewed by the fleet while a session is open.
+        backend.hold_depth_camera(float(cmd.get("args", {}).get("ttl_s", 0)))
+        return {"status": "ok"}
     if ctype == "start_capture":
         if backend.is_capturing:
             return {"status": "error", "message": "already capturing"}
@@ -1169,7 +1173,8 @@ async def lifespan(app: FastAPI):
             capabilities=["get_state", "start_capture", "stop_capture", "logout",
                           "upload_episodes", "process_dataset", "cancel_dataset",
                           "delete_episode", "edit_task", "delete_task",
-                          "assign_episodes", "prepare_capture", "shutdown"],
+                          "assign_episodes", "prepare_capture", "hold_depth_camera",
+                          "shutdown"],
             hand=settings.hand,
             battery_provider=_pisugar_battery,  # reported via heartbeat for the fleet UI
             tasks_provider=get_task_manager().report_tasks,  # this device's tasks, sent on connect
@@ -1183,6 +1188,7 @@ async def lifespan(app: FastAPI):
             # only find that out by walking up to the grabette and reading its
             # LED will find it out too late.
             fault_provider=lambda: getattr(_daemon.backend, "hardware_error", ""),
+            depth_warm_provider=lambda: getattr(_daemon.backend, "is_depth_camera_warm", None),
         )
         relay_task = asyncio.create_task(relay.run(_handle_relay_command))
         logger.info("Relay started → %s (device: %s)", settings.relay_url, settings.device_id)
