@@ -175,7 +175,7 @@ def analyse_saved() -> None:
             peak = np.unravel_index(int(np.argmax(residual[i])), (rows, cols))
             if abs(peak[0] - caps[i, 0]) <= 1 and abs(peak[1] - caps[i, 1]) <= 1:
                 hits += 1
-        print(f"\n4. residual (map minus template) peaks within one cell of the")
+        print("\n4. residual (map minus template) peaks within one cell of the")
         print(f"   cap in {hits}/{int(have.sum())} frames ({hits/max(have.sum(),1):.0%})")
         print("   chance for a 3x3 window on a 12x16 grid is about 5%")
 
