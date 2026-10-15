@@ -1183,6 +1183,7 @@ async def lifespan(app: FastAPI):
             # only find that out by walking up to the grabette and reading its
             # LED will find it out too late.
             fault_provider=lambda: getattr(_daemon.backend, "hardware_error", ""),
+            depth_warm_provider=lambda: getattr(_daemon.backend, "is_depth_camera_warm", None),
         )
         relay_task = asyncio.create_task(relay.run(_handle_relay_command))
         logger.info("Relay started → %s (device: %s)", settings.relay_url, settings.device_id)

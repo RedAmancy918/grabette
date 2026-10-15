@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from grabette.hardware.sound import cue_error
 
 logger = logging.getLogger(__name__)
+
+# Fleet's camera wait cap (20s) + margin.
+FLEET_WAIT_MAX_S = 30.0
 
 
 class CaptureScheduler:
@@ -38,9 +42,21 @@ class CaptureScheduler:
         # same instant instead of the pressed device stopping instantly and
         # peers lagging by the command round-trip.
         self._stop_task: asyncio.Task | None = None
+        # Deadline of a start the fleet holds for the depth cameras.
+        self._fleet_wait_until: float | None = None
 
     def is_scheduled(self) -> bool:
         return self._task is not None and not self._task.done()
+
+    def mark_waiting_for_fleet(self) -> None:
+        self._fleet_wait_until = time.monotonic() + FLEET_WAIT_MAX_S
+
+    def is_waiting_for_fleet(self) -> bool:
+        return self._fleet_wait_until is not None and time.monotonic() < self._fleet_wait_until
+
+    def is_pending(self) -> bool:
+        """Scheduled here, or held by the fleet."""
+        return self.is_scheduled() or self.is_waiting_for_fleet()
 
     @property
     def is_starting(self) -> bool:
@@ -60,6 +76,7 @@ class CaptureScheduler:
         happen, seconds later, in a background task. Checking here turns it into
         an immediate, attributable error at the press."""
         backend.raise_if_capture_blocked()
+        self._fleet_wait_until = None
         self._start_at_utc = start_at_utc
         self._task = asyncio.create_task(
             self._wait_and_start(backend, sm, episode_dir, start_at_utc),
@@ -143,6 +160,8 @@ class CaptureScheduler:
         Returns:
             "cancelled" — a not-yet-fired start was aborted; caller must
                 discard the pending episode and must NOT call stop_capture.
+            "cancelled_wait" — a fleet-held start was dropped; caller must
+                tell the fleet.
             "ran" — nothing was scheduled, or it already started (or
                 finished starting) by the time we checked; caller should
                 proceed with a normal stop_capture if backend.is_capturing.
@@ -151,6 +170,9 @@ class CaptureScheduler:
         (refuses to interrupt hardware init mid-flight).
         """
         if not self.is_scheduled():
+            if self.is_waiting_for_fleet():
+                self._fleet_wait_until = None
+                return "cancelled_wait"
             return "ran"
         if self._starting:
             try:
