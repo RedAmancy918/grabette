@@ -52,7 +52,7 @@ _BATTERY_INTERVAL_S = 30.0
 # would only run once that upload had finished — i.e. never cancel anything. These
 # are dispatched immediately, concurrently with whatever is running. Only put
 # command types here that do no hardware work and return fast.
-_FAST_PATH_TYPES = frozenset({"cancel_dataset", "hold_depth_camera"})
+_FAST_PATH_TYPES = frozenset({"cancel_dataset"})
 
 # Hardware-fault text is reported on the heartbeat, i.e. in a query string. The
 # messages name the fault, the consequence and the fix, so they are a sentence or

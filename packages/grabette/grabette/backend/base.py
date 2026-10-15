@@ -54,10 +54,6 @@ class Backend(ABC):
         Default: no-op (backends with no slow init)."""
         return None
 
-    def hold_depth_camera(self, ttl_s: float) -> None:
-        """Keep the depth camera powered for the next ttl_s seconds. Default: no-op."""
-        return None
-
     @property
     def hardware_error(self) -> str:
         """Why this device must not record right now ("" = fine).

@@ -1,5 +1,6 @@
-"""The depth camera stays on under a fleet lease, and powers down once it expires."""
+"""The depth camera powers down after the keep-alive, and reports when it is warm."""
 import asyncio
+import time
 import types
 
 from grabette.backend import rpi
@@ -20,63 +21,12 @@ def _warm_backend(keepalive_s=0.05):
     return b, powered_down
 
 
-def test_without_a_hold_the_keepalive_powers_the_camera_down():
+def test_the_keepalive_powers_the_camera_down():
     b, powered_down = _warm_backend()
 
     asyncio.run(b._oakd_keepalive_powerdown())
 
     assert powered_down == [True]
-
-
-def test_a_live_hold_keeps_the_camera_on_past_the_keepalive():
-    b, powered_down = _warm_backend(keepalive_s=0.01)
-
-    async def scenario():
-        b.hold_depth_camera(10)
-        task = asyncio.create_task(b._oakd_keepalive_powerdown())
-        await asyncio.sleep(0.1)
-        done = task.done()
-        task.cancel()
-        return done
-
-    assert asyncio.run(scenario()) is False
-    assert powered_down == []
-
-
-def test_an_expired_hold_hands_power_back_to_the_keepalive():
-    # Nobody renews the lease (the fleet went away): the camera must still go off.
-    b, powered_down = _warm_backend(keepalive_s=0.01)
-    b.hold_depth_camera(0.05)
-
-    asyncio.run(asyncio.wait_for(b._oakd_keepalive_powerdown(), timeout=2))
-
-    assert powered_down == [True]
-
-
-def test_a_renewed_hold_is_seen_by_a_powerdown_already_waiting():
-    b, powered_down = _warm_backend(keepalive_s=0.01)
-
-    async def scenario():
-        b.hold_depth_camera(0.05)
-        task = asyncio.create_task(b._oakd_keepalive_powerdown())
-        await asyncio.sleep(0.03)
-        b.hold_depth_camera(10)
-        await asyncio.sleep(0.1)
-        done = task.done()
-        task.cancel()
-        return done
-
-    assert asyncio.run(scenario()) is False
-    assert powered_down == []
-
-
-def test_a_hold_is_capped():
-    b, _ = _warm_backend()
-
-    b.hold_depth_camera(1e9)
-
-    import time
-    assert b._oakd_hold_until - time.monotonic() <= rpi.OAKD_HOLD_MAX_S
 
 
 def test_a_warmup_with_no_capture_after_it_rearms_the_powerdown():
@@ -93,22 +43,6 @@ def test_a_warmup_with_no_capture_after_it_rearms_the_powerdown():
         return armed
 
     assert asyncio.run(scenario()) is True
-
-
-def test_a_release_takes_effect_without_waiting_out_the_old_lease():
-    # The fleet releases with ttl_s=0 at session close. A power-down already
-    # sleeping until the old deadline must be re-armed, not left to sleep on.
-    b, powered_down = _warm_backend(keepalive_s=0.01)
-
-    async def scenario():
-        b.hold_depth_camera(30)
-        b._schedule_oakd_keepalive()
-        await asyncio.sleep(0.05)
-        b.hold_depth_camera(0)
-        await asyncio.sleep(0.1)
-
-    asyncio.run(asyncio.wait_for(scenario(), timeout=2))
-    assert powered_down == [True]
 
 
 # --- "warm" means converged, not merely powered ------------------------------
@@ -166,3 +100,17 @@ def test_concurrent_enables_initialize_the_camera_once():
 
     asyncio.run(scenario())
     assert len(inits) == 1
+
+
+# --- not "warm" right before the keep-alive powers it down --------------------
+
+def test_a_camera_about_to_power_down_is_not_warm():
+    # The fleet would pick the short lead and the camera would be off at T0.
+    b = rpi.RpiBackend()
+    b._oakd = _camera(ready=True)
+    asyncio.run(b._wait_depth_ready())
+
+    b._oakd_powerdown_at = time.monotonic() + rpi.OAKD_WARM_MARGIN_S + 10
+    assert b.is_depth_camera_warm is True
+    b._oakd_powerdown_at = time.monotonic() + rpi.OAKD_WARM_MARGIN_S - 1
+    assert b.is_depth_camera_warm is False

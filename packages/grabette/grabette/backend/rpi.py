@@ -38,8 +38,10 @@ FPS = 46
 # frames before starting the recording clock. Safety fallback only — the OAK-D
 # normally becomes ready well within this.
 OAKD_READY_TIMEOUT_S = 5.0
-# Cap on one hold_depth_camera lease, against a caller pinning the camera on.
-OAKD_HOLD_MAX_S = 300.0
+# Within this margin of the keep-alive power-down the OAK-D no longer reports
+# itself warm: a start scheduled with the short lead could otherwise find it
+# powered down at T0.
+OAKD_WARM_MARGIN_S = 5.0
 
 
 def _camera_metadata(model: str, cap) -> dict:
@@ -130,9 +132,8 @@ class RpiBackend(Backend):
         self._oakd_auto_enabled = False
         # Pending "power the OAK-D down after the keep-alive window" timer.
         self._oakd_keepalive_task = None
-        # time.monotonic() until which the keep-alive must not power the OAK-D
-        # down (fleet lease, see hold_depth_camera).
-        self._oakd_hold_until = 0.0
+        # time.monotonic() at which that timer fires (None = not armed).
+        self._oakd_powerdown_at = None
         # Camera object that last passed wait_until_ready; replacing self._oakd
         # invalidates it.
         self._depth_ready_cam = None
@@ -453,9 +454,13 @@ class RpiBackend(Backend):
 
     @property
     def is_depth_camera_warm(self) -> bool:
-        """Powered and past its warm-up (wait_until_ready succeeded)."""
+        """Powered, past its warm-up (wait_until_ready succeeded), and not about
+        to be powered down by the keep-alive."""
         cam = self._oakd
-        return cam is not None and cam.is_initialized and cam is self._depth_ready_cam
+        if cam is None or not cam.is_initialized or cam is not self._depth_ready_cam:
+            return False
+        at = self._oakd_powerdown_at
+        return at is None or at - time.monotonic() > OAKD_WARM_MARGIN_S
 
     async def _wait_depth_ready(self) -> None:
         """Wait until the depth camera is ready, and remember it once it is."""
@@ -472,6 +477,7 @@ class RpiBackend(Backend):
         """Cancel a pending auto-power-down, if any."""
         task = self._oakd_keepalive_task
         self._oakd_keepalive_task = None
+        self._oakd_powerdown_at = None
         if task is not None and not task.done():
             task.cancel()
 
@@ -479,19 +485,8 @@ class RpiBackend(Backend):
         """Arm the auto-power-down timer (replaces any existing one)."""
         import asyncio
         self._cancel_oakd_keepalive()
+        self._oakd_powerdown_at = time.monotonic() + self._oakd_keepalive_s
         self._oakd_keepalive_task = asyncio.create_task(self._oakd_keepalive_powerdown())
-
-    def hold_depth_camera(self, ttl_s: float) -> None:
-        """Keep an auto-enabled OAK-D powered for the next ttl_s seconds, past
-        the keep-alive window. Renewed by the fleet while a session is open;
-        once it expires the ordinary keep-alive applies."""
-        ttl_s = max(0.0, min(float(ttl_s), OAKD_HOLD_MAX_S))
-        previous = self._oakd_hold_until
-        self._oakd_hold_until = time.monotonic() + ttl_s
-        # A shortened lease (release) must not wait out the old deadline.
-        task = self._oakd_keepalive_task
-        if self._oakd_hold_until < previous and task is not None and not task.done():
-            self._schedule_oakd_keepalive()
 
     async def _oakd_keepalive_powerdown(self) -> None:
         """Power the OAK-D down once the keep-alive window elapses, unless a new
@@ -499,12 +494,11 @@ class RpiBackend(Backend):
         import asyncio
         try:
             await asyncio.sleep(self._oakd_keepalive_s)
-            while (remaining := self._oakd_hold_until - time.monotonic()) > 0:
-                await asyncio.sleep(remaining)
         except asyncio.CancelledError:
             return
         # Clear our own ref first so set_oakd_enabled() below is a no-op cancel.
         self._oakd_keepalive_task = None
+        self._oakd_powerdown_at = None
         if self._capturing or self.is_teleop_active or not self._oakd_auto_enabled:
             return
         logger.info("OAK-D keep-alive expired — powering down")
