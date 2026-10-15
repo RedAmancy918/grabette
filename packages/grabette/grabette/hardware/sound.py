@@ -132,6 +132,9 @@ CUES: dict[str, tuple[tuple[float, float], ...]] = {
 # What the dashboard's test button plays: the four cues a recording uses, in
 # the order a take produces them (same as scripts/test_speaker.py).
 TEST_SEQUENCE: tuple[str, ...] = (CUE_START, CUE_STOP, CUE_SAVED, CUE_ERROR)
+# Every cue that can be played on demand: the sequence, plus the fleet's goal
+# fanfare, which no take produces.
+TESTABLE: tuple[str, ...] = TEST_SEQUENCE + (CUE_GOAL,)
 # Silence between two cues of the test sequence, so each is heard on its own.
 TEST_GAP_S = 0.5
 

@@ -689,23 +689,13 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
         return {"status": "ok"}
 
     if ctype == "test_sound":
-        # The fleet's ▶ buttons: one cue, now, so the operator hears on the
-        # device what it will play. Same refusals as the dashboard's test
-        # (routers/sound.py), plus the goal fanfare, which only the fleet sends.
-        from grabette.hardware import sound
-        cue = cmd.get("args", {}).get("cue")
-        if cue not in sound.TEST_SEQUENCE and cue != sound.CUE_GOAL:
-            return {"status": "error", "message": f"unknown cue {cue!r}"}
-        cap = daemon.backend.get_state().capture
-        if cap.is_capturing or cap.is_starting:
-            return {"status": "error", "message": "Not during a recording."}
-        speaker = sound.get_speaker()
-        if not speaker.is_available:
-            return {"status": "error", "message": "No speaker on this Grabette."}
-        if speaker.volume == 0.0:
-            return {"status": "error", "message": "The speaker is muted."}
-        if not speaker.play_test_sequence((cue,)):
-            return {"status": "error", "message": "A test is already playing."}
+        # The fleet's ▶ buttons: the dashboard's sound test, refusals included.
+        from fastapi import HTTPException
+        from grabette.app.routers.sound import play_test
+        try:
+            play_test(cmd.get("args", {}).get("cue"))
+        except HTTPException as e:
+            return {"status": "error", "message": str(e.detail)}
         return {"status": "ok"}
 
     if ctype == "get_state":
