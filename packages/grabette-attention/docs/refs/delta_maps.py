@@ -82,7 +82,7 @@ def main() -> None:
         print(f"  causal max {c.max():.2f} mm  median {np.median(c):.2f} mm  "
               f"= {c.max()/max(occ.baseline_mm,1e-9):.0%} of baseline motion")
         print(f"  corr(attention, causal) = {pear:+.3f}")
-        print(f"  top-k overlap: " + "  ".join(
+        print("  top-k overlap: " + "  ".join(
             f"{k}:{v}/{k}" for k, v in overlaps.items()))
         for name, arr in (("attn", a), ("causal", c)):
             top = np.argsort(arr)[::-1][:4]

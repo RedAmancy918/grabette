@@ -83,29 +83,40 @@
             margin: 0 0 .35rem;
         }
         .section-head p { color: #8b98ad; font-size: .82rem; line-height: 1.5; margin: 0; }
-        /* The two things people get wrong before they even reach the dashboard.
-           Boxed off from the intro above it: these are conditions to check, not
-           more description, and the border is what says so at a glance. */
-        .prereq {
-            margin: 1.1rem 0 0;
-            padding: .85rem 1rem;
-            border-radius: 12px;
-            /* Emerald, not the amber the warnings own: these are conditions to
-               meet, not something that went wrong. */
-            background: rgba(16,185,129,.07);
-            border: 1px solid rgba(16,185,129,.28);
+        .features {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .6rem;
+            list-style: none;
+            margin: 0 0 1rem;
+            padding: 0;
         }
-        .prereq .section-label { color: #6ee7b7; margin-bottom: .5rem; }
-        /* Same scale as the list below it — as a bare element it would inherit
-           the body's 14px and tower over the steps it introduces. */
-        .prereq-lead { color: #8b98ad; font-size: .82rem; line-height: 1.5; margin: 0 0 .55rem; }
-        .prereq-lead b { color: #c3cbe0; }
-        .facts { color: #8b98ad; font-size: .82rem; line-height: 1.5; margin: 0; padding-left: 1.05rem; }
-        /* Ordered lists hang their numbers in the padding; 1.05rem clips them. */
-        ol.facts { padding-left: 1.35rem; }
-        .facts li + li { margin-top: .3rem; }
-        .facts b { color: #c3cbe0; }
-        .facts a { color: #7dd3fc; }
+        .feature {
+            display: flex;
+            align-items: center;
+            gap: .7rem;
+            padding: .7rem .75rem;
+            border-radius: 12px;
+            background: rgba(255,255,255,.05);
+            border: 1px solid rgba(255,255,255,.1);
+        }
+        .feature-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            width: 2.4rem;
+            height: 2.4rem;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #10b981, #3b82f6);
+            color: #fff;
+        }
+        .feature-icon-hf { background: #fff3c4; font-size: 1.35rem; }
+        .feature-icon-live { background: #ede9fe; color: #8b5cf6; }
+        .feature-icon-check { background: #d1fae5; color: #10b981; }
+        .feature-icon-rec { background: #fee2e2; color: #ef4444; }
+        .feature-title { color: #e2e8f0; font-size: .86rem; font-weight: 600; line-height: 1.3; }
+        .feature-sub { color: #8b98ad; font-size: .76rem; line-height: 1.35; }
 
         /* Three tabs split the page into the three things a new owner does, in
            order, so none of them has to scroll past the other two. The tab bar
@@ -531,13 +542,6 @@
            text treatment (as .ep-big-num does) so it reads as the headline of
            the card rather than a status line. */
         .conn-line { display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem; }
-        .conn-label {
-            font-size: .72rem;
-            font-weight: 700;
-            color: #8b98ad;
-            letter-spacing: .05em;
-            text-transform: uppercase;
-        }
         .conn-name {
             font-size: 1.05rem;
             font-weight: 800;
@@ -596,7 +600,7 @@
             background: #1a1a2e;
             margin-bottom: .8rem;
         }
-        /* The emerald of .prereq and the success line: a state that is fine. */
+        /* The emerald of the success line: a state that is fine. */
         .card.calib-done { background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.35); }
         .calib-done-title { color: #a7f3d0; font-weight: 700; font-size: 1rem; }
         /* The check's aside, after its instruction: an info mark, not a step. */
@@ -633,6 +637,7 @@
             .power-row { flex-direction: column; align-items: stretch; gap: 1rem; }
             .power-row .video-frame { flex: none; }
             .calib-photos img { height: 150px; }
+            .features { grid-template-columns: 1fr; }
             .tabs { gap: .15rem; padding: .25rem; }
             .tab { padding: .5rem .3rem; font-size: .78rem; gap: .3rem; }
         }
@@ -713,7 +718,7 @@
             <div class="power-steps">
                 <ol class="steps">
                     <li>Press once</li>
-                    <li>Press a second time and hold</li>
+                    <li>While the green lights are still on, press a second time and hold</li>
                     <li>Release when the blue light appears</li>
                 </ol>
                 <p class="steps-note"><i>Give the device a moment to start up before going to the next step.</i></p>
@@ -808,10 +813,7 @@
             <div id="connectedBox" hidden>
                 <div class="conn-line">
                     <span class="status-dot status-connected"></span>
-                    <div>
-                        <div class="conn-label">Connected to</div>
-                        <div class="conn-name" id="statusText">—</div>
-                    </div>
+                    <div class="conn-name" id="statusText">—</div>
                 </div>
                 <button class="btn-secondary" id="btnDisconnect" onclick="disconnectDevice()">
                     Disconnect
@@ -823,7 +825,7 @@
 
         <!-- WiFi Configuration — revealed once the BLE link is up. -->
         <div class="card step-card" id="card-wifi" hidden>
-            <div class="step"><span class="step-num">2</span> Configure WiFi</div>
+            <div class="step"><span class="step-num">2</span> Configure its WiFi</div>
             <!-- The scan only ever serves the SSID field, so it sits beside it and
                  its results drop down from it. -->
             <div class="ssid-field">
@@ -861,7 +863,7 @@
              the last step before the dashboard. -->
         <button class="btn-primary next-btn" id="btnToDash" hidden disabled
                 title="Available once your device is on WiFi"
-                onclick="selectTab('calibration')">Next: calibrate →</button>
+                onclick="selectTab('calibration')">Next: Calibrate →</button>
 
         <!-- Not a step: ping and network status are usable at any point once
              connected, so this panel sits outside the numbered flow — and
@@ -953,20 +955,26 @@
         <div class="panel" id="panel-dash" role="tabpanel" aria-labelledby="tab-dash" tabindex="0" hidden>
             <div class="section-head">
                 <h2>Open your Grabette dashboard</h2>
-                <p class="prereq-lead">Allows you to get an overview of Grabette’s <b>sensors</b> and <b>data</b> and <b>log in</b> to HuggingFace there.</p>
             </div>
 
-            <div class="prereq">
-                <div class="section-label">In the dashboard</div>
-                <p class="prereq-lead"><i>Make sure you're on the <b>same network</b> as Grabette.</i></p>
-
-                <ol class="facts">
-                    <li>&nbsp;Take a look at the view of both <b>cameras</b> and the <b>gripper joint data</b></li>
-                    <li>&nbsp;Make a <b>test recording</b> to check everything is working fine.</li>
-                    <li>&nbsp;<b>Log in</b> to your HuggingFace account : by one-click OAuth or with a token</li>
-                    <li>&nbsp;Access the <b>Grabette Fleet</b> space to start making sessions of recording.</li>
-                </ol>
-            </div>
+                <ul class="features">
+                    <li class="feature">
+                        <span class="feature-icon feature-icon-live"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+                        <div><div class="feature-title">Live view</div><div class="feature-sub">Cameras &amp; gripper joints</div></div>
+                    </li>
+                    <li class="feature">
+                        <span class="feature-icon feature-icon-check"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
+                        <div><div class="feature-title">Test recording</div><div class="feature-sub">Check that everything works</div></div>
+                    </li>
+                    <li class="feature">
+                        <span class="feature-icon feature-icon-hf" aria-hidden="true">🤗</span>
+                        <div><div class="feature-title">Hugging Face login</div><div class="feature-sub">One-click OAuth or token</div></div>
+                    </li>
+                    <li class="feature">
+                        <span class="feature-icon feature-icon-rec"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg></span>
+                        <div><div class="feature-title">Grabette Fleet</div><div class="feature-sub">Start recording sessions</div></div>
+                    </li>
+                </ul>
 
             <div class="card" id="dashWait">
                 <p class="wait-note">Finish <b>WiFi setup</b> — the link appears once the Grabette
@@ -1154,7 +1162,7 @@
         document.getElementById('connectPick').hidden = connected;
         document.getElementById('connectedBox').hidden = !connected;
         document.getElementById('step1Title').textContent =
-            connected ? 'Connected device' : 'Select the type of device';
+            connected ? 'Selected device' : 'Select the type of device';
         if (connected) document.getElementById('statusText').textContent = deviceName || '?';
 
         reveal('card-wifi', connected);
@@ -1652,8 +1660,9 @@
         }
         checks.push('Plain HTTP — your browser may warn.');
         if (connectedHost) {
-            checks.push('Address changed? Try <b>http://' + escapeHtml(connectedHost)
-                        + '.local:' + port + '</b> (mDNS).');
+            const mdns = escapeHtml('http://' + connectedHost + '.local:' + port).replace(/"/g, '&quot;');
+            checks.push('Address changed? Try <a class="bookmark-url" href="' + mdns
+                        + '" target="_blank" rel="noopener">' + mdns + '</a> (mDNS).');
         }
 
         document.getElementById('dashNote').innerHTML =
