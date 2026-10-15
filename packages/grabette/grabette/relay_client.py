@@ -39,6 +39,8 @@ _LONGPOLL_HOLD_HINT_S = 1.5
 # fleet's ONLINE_WINDOW instead of waiting out the long-poll hold. Keep in step
 # with the fleet's DEVICE_HEARTBEAT_S.
 _HEARTBEAT_INTERVAL_S = 5.0
+# A depth_warm change is sent at once: the fleet holds starts on it.
+_DEPTH_WARM_CHECK_S = 0.5
 # Battery is read on its OWN slow cadence, NOT inside the heartbeat: the read is
 # I2C (PiSugar) and I2C is contended during capture, so a read can stall for
 # seconds. Doing it in the heartbeat would stall liveness → the fleet would mark
@@ -151,8 +153,26 @@ class RelayClient:
         self.fault_provider = fault_provider
         self.depth_warm_provider = depth_warm_provider
         self._last_reported_rev: Optional[int] = None  # last task revision sent to the fleet
+        self._sent_depth_warm: Optional[bool] = None  # last depth_warm sent to the fleet
         self._battery: Optional[float] = None  # cached; refreshed off the heartbeat path
         self.status = "offline"
+
+    def _read_depth_warm(self) -> Optional[bool]:
+        if self.depth_warm_provider is None:
+            return None
+        try:
+            return self.depth_warm_provider()
+        except Exception:
+            return None
+
+    async def _sleep_until_beat(self) -> None:
+        """One heartbeat interval, cut short by a depth_warm change."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _HEARTBEAT_INTERVAL_S
+        while (left := deadline - loop.time()) > 0:
+            await asyncio.sleep(min(_DEPTH_WARM_CHECK_S, left))
+            if self._read_depth_warm() != self._sent_depth_warm:
+                return
 
     def _headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
@@ -278,7 +298,7 @@ class RelayClient:
                 real disconnect fast. Best-effort: a missed beat only delays
                 detection slightly; a 404 (not yet registered) is ignored."""
                 while True:
-                    await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+                    await self._sleep_until_beat()
                     token = self.token_provider()
                     if not token:
                         continue
@@ -302,13 +322,10 @@ class RelayClient:
                         # a field that only appears when broken can never say
                         # "fixed". Truncated because it rides in a query string.
                         params["error"] = (fault or "")[:_FAULT_MAX_CHARS]
-                    if self.depth_warm_provider is not None:
-                        try:
-                            warm = self.depth_warm_provider()
-                        except Exception:
-                            warm = None
-                        if warm is not None:
-                            params["depth_warm"] = "true" if warm else "false"
+                    warm = self._read_depth_warm()
+                    self._sent_depth_warm = warm
+                    if warm is not None:
+                        params["depth_warm"] = "true" if warm else "false"
                     try:
                         async with session.post(
                             f"{self.base_url}/api/devices/heartbeat",
