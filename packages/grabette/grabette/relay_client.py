@@ -153,6 +153,9 @@ class RelayClient:
         self.fault_provider = fault_provider
         self.depth_warm_provider = depth_warm_provider
         self._last_reported_rev: Optional[int] = None  # last task revision sent to the fleet
+        # Token of the last register: on an account switch the fleet may hold a
+        # stale entry for us that polls fine, so a new token forces a re-register.
+        self._registered_token: Optional[str] = None
         self._sent_depth_warm: Optional[bool] = None  # last depth_warm sent to the fleet
         self._battery: Optional[float] = None  # cached; refreshed off the heartbeat path
         self.status = "offline"
@@ -215,6 +218,7 @@ class RelayClient:
             f"{self.base_url}/api/devices/register", json=body, headers=self._headers(token)
         ) as r:
             r.raise_for_status()
+        self._registered_token = token
 
     async def _poll(self, session: aiohttp.ClientSession, token: str) -> list[dict[str, Any]]:
         async with session.get(
@@ -381,6 +385,8 @@ class RelayClient:
                     # (held the connection) or handed us work — no throttling
                     # needed, the hold itself paced us.
                     delay = self.poll_interval
+                    if token != self._registered_token:
+                        registered = False  # account switched (see _registered_token)
                     try:
                         if not registered:
                             await self._register(session, token)
