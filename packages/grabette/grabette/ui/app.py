@@ -756,12 +756,13 @@ html.gb-off .toast-wrap {
     width: auto !important;
     min-width: 0 !important;
 }
-/* Each Troubleshooting section's Close, on the right; not beside the Close
-   a successful fix brings up. */
-.gb-diag-card .gb-diag-actions .gb-ts-close {
-    margin-left: auto !important;
+/* Troubleshooting's one Close, under every section, on the right: the
+   angle sensors' own Close (after a fix) would be a second one. */
+.gb-ts-card .gb-diag-actions.gb-ts-foot {
+    justify-content: flex-end !important;
+    margin-top: .4rem !important;
 }
-.gb-diag-card .gb-diag-actions:has(.gb-diag-done:not(.gb-diag-gone)) .gb-ts-close {
+.gb-ts-card button.gb-diag-done {
     display: none !important;
 }
 .gb-diag-card .gb-diag-gone,
@@ -1682,7 +1683,7 @@ def _ts_depth_html(dcam: dict | None) -> str:
     elif dcam.get("initializing"):
         verdict = _diag_verdict_html(f"The {label} is starting…", "#f59e0b")
     else:
-        verdict = _diag_verdict_html(f"The {label} is ready to record.",
+        verdict = _diag_verdict_html(f"The {label} is working.",
                                      "#10b981")
     return "<div>" + "".join(rows) + verdict + "</div>"
 
@@ -1732,6 +1733,16 @@ _CALIB_VIEWER_IFRAME = (
     '<iframe src="/viewer?yaw=180" '
     'style="width:100%;height:260px;border:none;display:block;'
     'border-radius:12px;background:#1a1a2e;"></iframe>'
+)
+
+# Troubleshooting's live test of the angle sensors: the same view again, with
+# what to do with it.
+_TS_ANGLE_LIVE = (
+    '<div style="margin-top:.9rem;font-size:.88rem;font-weight:600;">'
+    'Test them live: move the gripper, the 3D model should follow it.</div>'
+    '<div style="margin:.2rem 0 .5rem;font-size:.8rem;opacity:.7;">'
+    'The model only updates twice a second, so it moves in small jumps.</div>'
+    + _CALIB_VIEWER_IFRAME
 )
 
 # Row separator — a hairline in the theme's own border colour, not the dark
@@ -2566,18 +2577,19 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         return (_diag_report_html(diag), *_diag_fix_update(diag),
                 f"✓ {res['done']}", box, diag, live, _diag_pw(False))
 
-    def _angle_diag_body(box=None, close=False):
+    def _angle_diag_body(box=None, live=False):
         """The report, its fix buttons and its live refresh, built where it is
         called: in the Diagnose popup, and in the Angle sensors section of
         Troubleshooting. `box` is the page's Diagnose button, hidden as soon as
-        a fix brings the sensors back (None: there is none to hide). `close`
-        adds a Close button beside the others.
+        a fix brings the sensors back (None: there is none to hide). `live`
+        adds a place for the live 3D model, under the report.
 
         Returns the parts the container wires: `reset` and `run` (the outputs
         of on_diag_again and on_diag_run, which start a walk), the live
-        `timer`, the `done` and `close` buttons and the `password` field
-        (cleared on close)."""
+        `timer`, the `done` button, the `live` view (None without one) and
+        the `password` field (cleared on close)."""
         report = gr.HTML(_diag_report_html(None))
+        live_view = gr.HTML("") if live else None
         msg = gr.Markdown("")
         # Shown when sudo asks for it (see on_diag_fix).
         password = gr.Textbox(
@@ -2593,9 +2605,6 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 elem_classes=_DIAG_DONE_CLASSES + ["gb-diag-gone"])
             again_btn = gr.Button("Run the diagnostic again",
                                   scale=0, min_width=0)
-            close_btn = (gr.Button("Close", scale=0, min_width=0,
-                                   elem_classes="gb-ts-close")
-                         if close else None)
         fix_state = gr.State(None)
         last_diag = gr.State(None)
         # Live refresh, only while the report is on screen: each tick is a
@@ -2629,7 +2638,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             outputs=fix_outputs)
         return SimpleNamespace(reset=reset_outputs, run=run_outputs,
                                timer=live_timer, done=done_btn,
-                               close=close_btn, password=password)
+                               live=live_view, password=password)
 
     def _angle_diag_prompt():
         """The "Diagnose" button and the popup it opens. Returns the box
@@ -2809,7 +2818,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         refresh), the tabs' colours, and the checks themselves.
 
         Outputs: RGB report, image and Reboot button, depth report, image
-        and Start (or Restart) button, the tabs' style, the issues."""
+        and Start (or Restart) button, the angle sensors' live view, the
+        tabs' style, the issues."""
         cap, cam, dcam, angle = _ts_read()
         issues = _ov_checks(cap, cam, dcam, angle)
         label = (dcam or {}).get("label") or "depth camera"
@@ -2834,6 +2844,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             gr.update(value=f"{verb} the {label}", interactive=True,
                       elem_classes=["gb-ts-start"]
                       + ([] if can_start else ["gb-diag-gone"])),
+            (_TS_ANGLE_LIVE if angle and angle.get("enabled")
+             and not angle.get("error") else ""),
             _ts_tabs_css(issues),
             issues,
         )
@@ -2945,8 +2957,6 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                                 "Reboot the grabette", variant="primary",
                                 scale=0, min_width=0,
                                 elem_classes=["gb-ts-reboot", "gb-diag-gone"])
-                            rgb_close = gr.Button("Close", scale=0, min_width=0,
-                                                  elem_classes="gb-ts-close")
                     with gr.Tab(dict(_TS_SECTIONS)[_TS_DEPTH], id=_TS_DEPTH) as tab_depth:
                         depth_html = gr.HTML(_ts_unknown_html())
                         depth_img = gr.Image(show_label=False, container=False,
@@ -2959,11 +2969,10 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                                 "Start the depth camera", variant="primary",
                                 scale=0, min_width=0,
                                 elem_classes=["gb-ts-start", "gb-diag-gone"])
-                            depth_close = gr.Button(
-                                "Close", scale=0, min_width=0,
-                                elem_classes="gb-ts-close")
                     with gr.Tab(dict(_TS_SECTIONS)[_TS_ANGLE], id=_TS_ANGLE) as tab_angle:
-                        angle = _angle_diag_body(close=True)
+                        angle = _angle_diag_body(live=True)
+                with gr.Row(elem_classes=["gb-diag-actions", "gb-ts-foot"]):
+                    foot_close = gr.Button("Close", scale=0, min_width=0)
         section = gr.State(_TS_RGB)
         # A textbox, not a State: the JS that clicks the tab reads it, and a
         # State never reaches the browser.
@@ -2972,7 +2981,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         timer = gr.Timer(2.0, active=False)
         tab_list = [tab_rgb, tab_depth, tab_angle]
         outputs = [rgb_html, rgb_img, rgb_reboot, depth_html, depth_img,
-                   depth_btn, tabs_css]
+                   depth_btn, angle.live, tabs_css]
 
         # The first part at fault is shown by clicking its tab, as a person
         # would: setting the tabs' `selected` from here pins them to it, and
@@ -3003,15 +3012,15 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             ).then(fn=on_ts_rgb_reboot, inputs=rgb_pw,
                    outputs=[rgb_msg, rgb_reboot, rgb_pw])
         # Closing stops both refreshes and forgets the password.
-        for _btn in (close_btn, rgb_close, depth_close, angle.close,
-                     angle.done):
+        for _btn in (close_btn, foot_close, angle.done):
+            # The live view goes too: a closed popup polls nothing.
             _btn.click(fn=lambda: (gr.update(visible=False),
                                    gr.Timer(active=False),
                                    gr.Timer(active=False),
                                    _diag_pw(False, value=""),
-                                   _ts_pw(False, value=""), ""),
+                                   _ts_pw(False, value=""), "", ""),
                        outputs=[modal, timer, angle.timer, angle.password,
-                                rgb_pw, rgb_msg],
+                                rgb_pw, rgb_msg, angle.live],
                        queue=False)
         return bind_open
 

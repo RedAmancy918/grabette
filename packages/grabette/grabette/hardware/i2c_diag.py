@@ -297,7 +297,7 @@ def diagnose(root: Path = Path("/"), probe: Probe = i2c_probe,
         d.fix = FIX_PERSIST_I2C_DEV
         d.manual = [f"echo i2c-dev | sudo tee {MODULES_LOAD_CONF}"]
         return _finish(d)
-    d.summary = "The angle sensors work."
+    d.summary = "The angle sensors are working."
     d.healthy = True
     return d
 
