@@ -113,7 +113,9 @@ ANGLE = {"enabled": True, "initialized": True, "error": ""}
 def test_a_healthy_device_is_ready():
     issues = _ov_checks(CAP, CAM, DCAM, ANGLE)
     assert issues == []
-    assert "Ready to record" in _ov_checks_html(issues)
+    out = _ov_checks_html(issues)
+    assert "gb-checks-ok" in out
+    assert out.count("✓") == 3
 
 
 def test_a_silent_device_is_unknown_not_healthy():
@@ -130,7 +132,8 @@ def test_every_part_at_fault_is_named_with_its_section():
     assert [(lvl, sec) for lvl, sec, _ in issues] == [
         ("fail", "rgb"), ("fail", "depth"), ("fail", "angle")]
     out = _ov_checks_html(issues)
-    assert "3 problems to fix before recording" in out
+    assert out.count("Not working") == 3
+    assert 'title="Gripper angle sensors not working"' in out
     assert "gb-checks-fail" in out
 
 

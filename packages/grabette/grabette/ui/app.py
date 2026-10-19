@@ -596,35 +596,25 @@ html.gb-off .toast-wrap {
         width: 100% !important;
     }
 }
-/* The Overview's pre-recording checks: one callout, coloured by the verdict
-   inside it (_ov_checks_html), with Troubleshooting on its right. */
+/* The Overview's pre-recording checks: a row of chips (_ov_checks_html),
+   with Troubleshooting after them. */
 .gb-checks {
     align-items: center !important;
-    justify-content: space-between !important;
+    justify-content: flex-start !important;
     flex-wrap: wrap !important;
-    gap: .75rem 1.25rem !important;
-    padding: .7rem 1rem !important;
-    border-radius: 12px !important;
-    border: 1px solid var(--border-color-primary) !important;
-    background: var(--background-fill-secondary) !important;
+    gap: .5rem .75rem !important;
 }
 .gb-checks > * {
     min-width: 0 !important;
 }
+/* The chips as wide as they need: Troubleshooting follows them, and goes
+   below them on a phone. */
+.gb-checks > :first-child {
+    flex: 0 1 auto !important;
+    width: auto !important;
+}
 .gb-checks .html-container {
     padding: 0 !important;
-}
-.gb-checks:has(.gb-checks-ok) {
-    background: #10b9811a !important;
-    border-color: #10b98166 !important;
-}
-.gb-checks:has(.gb-checks-warn) {
-    background: #f59e0b1a !important;
-    border-color: #f59e0b66 !important;
-}
-.gb-checks:has(.gb-checks-fail) {
-    background: #ef44441a !important;
-    border-color: #ef444466 !important;
 }
 .gb-checks .gb-checks-actions {
     flex: 0 0 auto !important;
@@ -703,12 +693,6 @@ html.gb-off .toast-wrap {
 .gb-ts-card img {
     object-fit: contain !important;
     border-radius: 10px;
-}
-@media (max-width: 560px) {
-    .gb-checks .gb-checks-actions,
-    .gb-checks .gb-checks-actions button {
-        width: 100% !important;
-    }
 }
 /* The Diagnose button on Test Recording (see _angle_diag_prompt). */
 .gb-diag-box {
@@ -1469,36 +1453,47 @@ def _ov_checks(cap: dict | None, cam: dict | None, dcam: dict | None,
 
 
 def _ov_checks_html(issues: list[tuple[str, str | None, str]] | None) -> str:
-    """The Overview's verdict on the checks; its class (gb-checks-<kind>) is
-    what colours the callout around it and the Troubleshooting button."""
+    """The Overview's checks as one chip per part, like Test Recording's
+    (_tr_cameras), with what is wrong in the chip's tooltip; its class
+    (gb-checks-<kind>) sums them up."""
     if issues is None:
-        kind, icon, title = "unknown", "…", "Cannot reach the device"
-        hint = "The checks run again in a few seconds."
-    elif not issues:
-        kind, icon, title = "ok", "✓", "Ready to record"
-        hint = "Cameras and angle sensors all check out."
+        kind = "unknown"
     elif any(level == "fail" for level, _, _ in issues):
-        n = sum(level == "fail" for level, _, _ in issues)
-        kind, icon = "fail", "⛔"
-        title = (f"{n} problem{'s' if n > 1 else ''} to fix before recording")
-        hint = ""
+        kind = "fail"
     else:
-        kind, icon, title, hint = "warn", "⏳", "Almost ready", ""
-    items = "".join(
-        '<li style="display:flex;gap:.5rem;align-items:baseline;">'
-        f'<span style="color:{_DIAG_MARKS[level][0]};font-weight:800;">'
-        f'{_DIAG_MARKS[level][1]}</span><span>{html.escape(text)}</span></li>'
-        for level, _, text in issues or ())
-    body = (f'<ul style="list-style:none;margin:.35rem 0 0;padding:0;'
-            f'display:grid;gap:.15rem;">{items}</ul>' if items else
-            f'<div style="font-size:.85rem;opacity:.75;">{html.escape(hint)}</div>')
-    return (
-        f'<div class="gb-checks-state gb-checks-{kind}">'
-        '<div style="display:flex;align-items:center;gap:.6rem;">'
-        f'<span style="font-size:1.1rem;line-height:1;">{icon}</span>'
-        '<span style="font-weight:700;font-size:1.02rem;'
-        f'color:var(--body-text-color);">{html.escape(title)}</span></div>'
-        f'{body}</div>')
+        kind = "warn" if issues else "ok"
+    chips = []
+    for section, label in _TS_SECTIONS:
+        texts = [t for _, s, t in issues or () if s == section]
+        levels = {level for level, s, _ in issues or () if s == section}
+        if issues is None:
+            color, mark = _CAM_STATES["unknown"][:2]
+            state, tip = "", "Cannot reach the device"
+        elif levels:
+            level = "fail" if "fail" in levels else "warn"
+            color, mark = _DIAG_MARKS[level]
+            state = "Not working" if level == "fail" else "Starting"
+            tip = " · ".join(texts)
+        else:
+            color, mark = _DIAG_MARKS["ok"]
+            state, tip = "", "OK"
+        chips.append(
+            f'<span title="{html.escape(tip, quote=True)}" '
+            'style="display:inline-flex;align-items:baseline;gap:.4rem;'
+            'white-space:nowrap;'
+            'padding:.3rem .7rem;border-radius:999px;font-size:.82rem;'
+            f'border:1px solid {color}55;">'
+            f'<span style="color:{color};font-weight:700;">{mark}</span>'
+            f'<span style="opacity:.75;">{html.escape(label)}</span>'
+            + (f'<strong>{state}</strong>' if state else "") + '</span>')
+    # Refused with no part at fault: the device is busy.
+    notes = "".join(
+        '<div style="font-size:.82rem;opacity:.75;margin-top:.35rem;">'
+        f'{html.escape(t)}</div>'
+        for _, s, t in issues or () if s is None)
+    return (f'<div class="gb-checks-state gb-checks-{kind}">'
+            '<div style="display:flex;flex-wrap:wrap;gap:.4rem;">'
+            + "".join(chips) + f'</div>{notes}</div>')
 
 
 def _ts_first_section(issues: list[tuple[str, str | None, str]] | None) -> str:
@@ -3699,7 +3694,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             with gr.Row(elem_id="ov-checks", elem_classes="gb-checks"):
                 ov_checks_html = gr.HTML(_ov_checks_html(None))
                 with gr.Row(elem_classes="gb-checks-actions"):
-                    ov_ts_btn = gr.Button("Troubleshooting", size="lg",
+                    ov_ts_btn = gr.Button("Troubleshooting", size="sm",
                                           scale=0, min_width=0,
                                           elem_classes="gb-checks-open")
             _troubleshooting(ov_ts_btn)
