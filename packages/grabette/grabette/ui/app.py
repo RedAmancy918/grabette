@@ -1216,21 +1216,21 @@ def _diag_cable_help_html(name: str | None) -> str:
     if name not in {n for n, _, _, _ in i2c_diag.SENSOR_BUSES}:
         return ""
     return (
-        '<div style="margin-top:.8rem;">'
-        f'<img src="/ui-assets/{name}-sensor-cable.gif" '
+        '<div style="margin-top:.8rem;">' + _tips_html(_CABLE_TIPS)
+        + f'<img src="/ui-assets/{name}-sensor-cable.gif" '
         f'alt="The {name} sensor cable, from the HAT to the sensor" '
-        'style="width:100%;display:block;border-radius:10px;background:#fff;" '
-        'onerror="this.style.display=\'none\';">'
-        + _tips_html(_CABLE_TIPS) + '</div>')
+        'style="width:100%;display:block;margin-top:.6rem;'
+        'border-radius:10px;background:#fff;" '
+        'onerror="this.style.display=\'none\';"></div>')
 
 
 def _tips_html(tips: tuple[str, ...]) -> str:
-    """What to look at, one 👁 line each, under a verdict."""
+    """What to look at, one 👁 line each, above the cable gif."""
     items = "".join(
         '<li style="display:flex;gap:.5rem;align-items:baseline;">'
         f'<span aria-hidden="true">👁</span><span>{html.escape(t)}</span></li>'
         for t in tips)
-    return ('<ul style="list-style:none;margin:.6rem 0 0;padding:0;'
+    return ('<ul style="list-style:none;margin:0;padding:0;'
             f'display:grid;gap:.3rem;font-weight:600;">{items}</ul>')
 
 
@@ -1465,14 +1465,14 @@ def _ts_depth_html(dcam: dict | None) -> str:
 
 
 def _camera_cable_help_html(gif: str, alt: str, tips: tuple[str, ...]) -> str:
-    """Where a camera's cable runs (a gif in grabette/ui/assets, like the
-    angle sensors'), then what to check."""
+    """What to check, then where a camera's cable runs (a gif in
+    grabette/ui/assets, like the angle sensors')."""
     return (
-        '<div style="margin-top:.8rem;">'
-        f'<img src="/ui-assets/{gif}" alt="{html.escape(alt)}" '
-        'style="width:100%;display:block;border-radius:10px;background:#fff;" '
-        'onerror="this.style.display=\'none\';">'
-        + _tips_html(tips) + '</div>')
+        '<div style="margin-top:.8rem;">' + _tips_html(tips)
+        + f'<img src="/ui-assets/{gif}" alt="{html.escape(alt)}" '
+        'style="width:100%;display:block;margin-top:.6rem;'
+        'border-radius:10px;background:#fff;" '
+        'onerror="this.style.display=\'none\';"></div>')
 
 
 def _ts_calib_html(calib: dict | None, angle: dict | None) -> str:
