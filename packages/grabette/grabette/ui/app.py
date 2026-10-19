@@ -59,8 +59,8 @@ MODAL_CSS = """
     background: #000 !important;
     border-color: #000 !important;
     color: #fff !important;
-    font-size: 1.15rem !important;
-    padding: .7rem 1.4rem !important;
+    font-size: 1.05rem !important;
+    padding: .45rem 1.1rem !important;
 }
 .gb-titlebar .gb-power:hover {
     background: #333 !important;
@@ -73,6 +73,10 @@ html.gb-off .toast-wrap {
     flex: 0 0 auto !important;
     width: auto !important;
     min-width: 0 !important;
+}
+.gb-titlebar .html-container {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
 }
 /* Episodes: a table that reads as a table, and buttons the size of their labels instead of four stretched bars. */
 /* The task menu is sized to a task name on a laptop, full width on a phone. */
@@ -194,25 +198,9 @@ html.gb-off .toast-wrap {
 #ov-page .ov-rule-bottom {
     display: none !important;
 }
-/* Tighter than the other pages' rows, so that the Account & fleet buttons
-   still show on a laptop's first screen. */
-#ov-page #ov-data,
-#ov-page #ov-account {
-    gap: .35rem !important;
-}
-#ov-page .ov-rule,
-#ov-page .ov-rule .html-container {
-    padding: 0 !important;
-}
 /* An empty note (most of the time) takes no room under its tile. */
 #ov-page .ov-note:not(:has(p)) {
     display: none !important;
-}
-#ov-page .ov-rule .html-container > div {
-    margin: 0 !important;
-}
-#ov-page .ov-rule .html-container > div > div {
-    margin: .5rem 0 .4rem !important;
 }
 /* Title and speaker volume side by side, the volume right after the title
    rather than pushed to the far edge; on a phone it wraps under the title. */
@@ -395,17 +383,12 @@ html.gb-off .toast-wrap {
     #ov-page .ov-cta a {
         width: 100% !important;
     }
-    /* On a phone the errands come before the status tiles, without their
-       descriptions: room for the Fleet Space button on the first screen. */
+    /* On a phone the errands come before the status tiles. */
     #ov-page #ov-data {
         order: -2;
     }
     #ov-page #ov-account {
         order: -1;
-    }
-    #ov-page #ov-data .ov-group-hint,
-    #ov-page #ov-account .ov-group-hint {
-        display: none !important;
     }
     /* …but a device that cannot record says so before anything else. */
     #ov-page #ov-checks,
@@ -2103,7 +2086,7 @@ _TITLE_HTML = (
     "<h1 style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',"
     "Roboto,Helvetica,Arial,sans-serif;font-weight:700;"
     "font-size:var(--text-xxl,2rem);color:var(--body-text-color);"
-    "margin:var(--spacing-xxl) 0 var(--spacing-lg);\">GRABETTE</h1>"
+    "margin:0;\">GRABETTE</h1>"
 )
 
 # Battery percentage at/below which the low-battery warning popup + sound fire.
@@ -2320,7 +2303,7 @@ def _ov_group_title(title: str, hint: str) -> str:
         '<div style="margin:0 0 .6rem;">'
         '<div style="font-size:1.1rem;font-weight:700;'
         f'color:var(--body-text-color);">{html.escape(title)}</div>'
-        '<div class="ov-group-hint" style="font-size:.85rem;opacity:.7;">'
+        '<div style="font-size:.85rem;opacity:.7;">'
         f'{html.escape(hint)}</div></div>'
     )
 
@@ -3878,7 +3861,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             # On a phone: Grabette data, then Account & fleet, then status
             # (see #ov-data / #ov-account in the CSS).
             with gr.Column(elem_id="ov-data"):
-                gr.HTML(_OV_RULE, elem_classes=["ov-rule", "ov-rule-top"])
+                gr.HTML(_OV_RULE, elem_classes="ov-rule-top")
                 gr.HTML(_ov_group_title(
                     "Grabette data",
                     "Check the recording works, then browse what is on the device.",
@@ -3899,7 +3882,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
 
             # ── Account | Fleet Space ─────────────────────────────────
             with gr.Column(elem_id="ov-account"):
-                gr.HTML(_OV_RULE, elem_classes="ov-rule")
+                gr.HTML(_OV_RULE)
                 gr.HTML(_ov_group_title(
                     "Account & fleet",
                     "Sign in to Hugging Face, and open the Fleet Space to start recording organized data and creating datasets.",
