@@ -200,10 +200,18 @@ html.gb-off .toast-wrap {
 #ov-page #ov-account {
     gap: .35rem !important;
 }
+#ov-page .ov-rule,
 #ov-page .ov-rule .html-container {
     padding: 0 !important;
 }
+/* An empty note (most of the time) takes no room under its tile. */
+#ov-page .ov-note:not(:has(p)) {
+    display: none !important;
+}
 #ov-page .ov-rule .html-container > div {
+    margin: 0 !important;
+}
+#ov-page .ov-rule .html-container > div > div {
     margin: .5rem 0 .4rem !important;
 }
 /* Title and speaker volume side by side, the volume right after the title
@@ -389,10 +397,14 @@ html.gb-off .toast-wrap {
     }
     /* On a phone the errands come before the status tiles, without their
        descriptions: room for the Fleet Space button on the first screen. */
-    #ov-page #ov-errands-row {
+    #ov-page #ov-data {
         order: -2;
     }
-    #ov-page #ov-errands-row .ov-group-hint {
+    #ov-page #ov-account {
+        order: -1;
+    }
+    #ov-page #ov-data .ov-group-hint,
+    #ov-page #ov-account .ov-group-hint {
         display: none !important;
     }
     /* …but a device that cannot record says so before anything else. */
@@ -3862,45 +3874,44 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                     with gr.Row(elem_classes="ov-tile-btn"):
                         ov_ts_bind(gr.Button("Troubleshooting", size="sm"))
 
-            # ── Grabette data | Account & fleet ───────────────────────
-            # Side by side on a laptop, so the Fleet Space shows on its first
-            # screen; on a phone, one under the other and before the status
-            # tiles (see #ov-errands-row in the CSS).
-            with gr.Row(elem_id="ov-errands-row", equal_height=False):
-                with gr.Column(elem_id="ov-data", scale=1, min_width=440):
-                    gr.HTML(_OV_RULE, elem_classes=["ov-rule", "ov-rule-top"])
-                    gr.HTML(_ov_group_title(
-                        "Grabette data",
-                        "Check the recording works, then browse what is on the device.",
-                    ))
-                    with gr.Row(elem_classes="ov-cta"):
-                        gr.Button(
-                            "Make a test recording →",
-                            link="/test-recording",
-                            variant="primary",
-                            size="lg",
-                        )
-                        gr.Button(
-                            "See recorded episodes →",
-                            link="/episodes",
-                            variant="primary",
-                            size="lg",
-                        )
+            # ── Recording and the episodes it produces ────────────────
+            # On a phone: Grabette data, then Account & fleet, then status
+            # (see #ov-data / #ov-account in the CSS).
+            with gr.Column(elem_id="ov-data"):
+                gr.HTML(_OV_RULE, elem_classes=["ov-rule", "ov-rule-top"])
+                gr.HTML(_ov_group_title(
+                    "Grabette data",
+                    "Check the recording works, then browse what is on the device.",
+                ))
+                with gr.Row(elem_classes="ov-cta"):
+                    gr.Button(
+                        "Make a test recording →",
+                        link="/test-recording",
+                        variant="primary",
+                        size="lg",
+                    )
+                    gr.Button(
+                        "See recorded episodes →",
+                        link="/episodes",
+                        variant="primary",
+                        size="lg",
+                    )
 
-                with gr.Column(elem_id="ov-account", scale=1, min_width=440):
-                    gr.HTML(_OV_RULE, elem_classes="ov-rule")
-                    gr.HTML(_ov_group_title(
-                        "Account & fleet",
-                        "Sign in to Hugging Face, and open the Fleet Space to start recording organized data and creating datasets.",
-                    ))
-                    with gr.Row(equal_height=False, elem_classes="ov-errands"):
-                        with gr.Column(scale=1, min_width=260):
-                            gr.HTML(_section_label("HuggingFace account"))
-                            gr.HTML(_HF_AUTH_BUTTON_IFRAME)
-                        with gr.Column(scale=1, min_width=260):
-                            gr.HTML(_section_label("Fleet Space"))
-                            gr.HTML(_FLEET_BUTTON_HTML.format(url=settings.relay_url))
-                    gr.HTML(_OV_RULE, elem_classes="ov-rule-bottom")
+            # ── Account | Fleet Space ─────────────────────────────────
+            with gr.Column(elem_id="ov-account"):
+                gr.HTML(_OV_RULE, elem_classes="ov-rule")
+                gr.HTML(_ov_group_title(
+                    "Account & fleet",
+                    "Sign in to Hugging Face, and open the Fleet Space to start recording organized data and creating datasets.",
+                ))
+                with gr.Row(equal_height=False, elem_classes="ov-errands"):
+                    with gr.Column(scale=1, min_width=260):
+                        gr.HTML(_section_label("HuggingFace account"))
+                        gr.HTML(_HF_AUTH_BUTTON_IFRAME)
+                    with gr.Column(scale=1, min_width=260):
+                        gr.HTML(_section_label("Fleet Space"))
+                        gr.HTML(_FLEET_BUTTON_HTML.format(url=settings.relay_url))
+                gr.HTML(_OV_RULE, elem_classes="ov-rule-bottom")
 
         ov_mode_state = gr.State(_OV_RGB)
         # State first: on_ov_mode blocks while the depth camera starts.
