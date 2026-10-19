@@ -98,7 +98,7 @@ def test_other_skins_are_untouched():
 # ── Pre-recording checks ──────────────────────────────────────────────
 
 from grabette.ui.app import (  # noqa: E402
-    _ov_checks, _ov_checks_html, _ts_depth_html,
+    _ov_checks, _ov_checks_html, _ov_problems_html, _ts_depth_html,
     _ts_first_section, _ts_rgb_html, _ts_tabs_css,
 )
 
@@ -116,6 +116,9 @@ def test_a_healthy_device_is_ready():
     out = _ov_checks_html(issues)
     assert "gb-checks-ok" in out
     assert out.count("✓") == 3
+    assert "Ready to record" in out
+    # Refused for a reason no part shows, like the calibration.
+    assert "Cannot record" in _ov_checks_html(issues, blocked=True)
 
 
 def test_a_silent_device_is_unknown_not_healthy():
@@ -135,6 +138,8 @@ def test_every_part_at_fault_is_named_with_its_section():
     assert out.count("Not working") == 3
     assert 'title="Gripper angle sensors not working"' in out
     assert "gb-checks-fail" in out
+    assert "Cannot record" in out
+    assert "3 problems to fix before recording" in _ov_problems_html(issues)
 
 
 def test_the_depth_cameras_own_fault_is_quoted():

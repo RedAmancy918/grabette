@@ -384,6 +384,7 @@ html.gb-off .toast-wrap {
     }
     /* …but a device that cannot record says so before anything else. */
     #ov-page #ov-checks,
+    #ov-page #ov-ts-fault,
     #ov-page #ov-calib {
         order: -3;
     }
@@ -418,6 +419,13 @@ html.gb-off .toast-wrap {
     border-radius: 12px !important;
     background: #f59e0b1a !important;
     border: 1px solid #f59e0b66 !important;
+}
+/* The same, red, for the parts that stop a recording (_ov_problems_html). */
+.gb-calib-box.gb-ts-callout {
+    padding: .7rem 1rem !important;
+    border-radius: 12px !important;
+    background: #ef44441a !important;
+    border: 1px solid #ef444466 !important;
 }
 /* On Test Recording: lined up with the status pill above it, and room for
    the shadow inside the card's overflow:hidden. */
@@ -596,41 +604,9 @@ html.gb-off .toast-wrap {
         width: 100% !important;
     }
 }
-/* The Overview's pre-recording checks: a row of chips (_ov_checks_html),
-   with Troubleshooting after them. */
-.gb-checks {
-    align-items: center !important;
-    justify-content: flex-start !important;
-    flex-wrap: wrap !important;
-    gap: .5rem .75rem !important;
-}
-.gb-checks > * {
-    min-width: 0 !important;
-}
-/* The chips as wide as they need: Troubleshooting follows them, and goes
-   below them on a phone. */
-.gb-checks > :first-child {
-    flex: 0 1 auto !important;
-    width: auto !important;
-}
+/* The Overview's pre-recording checks: a row of chips (_ov_checks_html). */
 .gb-checks .html-container {
     padding: 0 !important;
-}
-.gb-checks .gb-checks-actions {
-    flex: 0 0 auto !important;
-    width: auto !important;
-    align-items: center !important;
-    flex-wrap: wrap !important;
-    gap: .6rem !important;
-}
-.gb-checks .gb-checks-actions > * {
-    flex: 0 0 auto !important;
-    width: auto !important;
-    min-width: 0 !important;
-}
-.gb-checks button.gb-checks-open {
-    border-radius: 6px !important;
-    font-weight: 700 !important;
 }
 /* Troubleshooting: the diagnostic popup's card, a little wider for its tabs. */
 .gb-diag-card.gb-ts-card {
@@ -1452,10 +1428,12 @@ def _ov_checks(cap: dict | None, cam: dict | None, dcam: dict | None,
     return issues
 
 
-def _ov_checks_html(issues: list[tuple[str, str | None, str]] | None) -> str:
-    """The Overview's checks as one chip per part, like Test Recording's
-    (_tr_cameras), with what is wrong in the chip's tooltip; its class
-    (gb-checks-<kind>) sums them up."""
+def _ov_checks_html(issues: list[tuple[str, str | None, str]] | None,
+                    blocked: bool = False) -> str:
+    """The Overview's checks: whether it can record (`blocked`: refused for
+    a reason of its own, like the calibration), then one chip per part, like
+    Test Recording's (_tr_cameras), with what is wrong in its tooltip; its
+    class (gb-checks-<kind>) sums them up."""
     if issues is None:
         kind = "unknown"
     elif any(level == "fail" for level, _, _ in issues):
@@ -1463,6 +1441,15 @@ def _ov_checks_html(issues: list[tuple[str, str | None, str]] | None) -> str:
     else:
         kind = "warn" if issues else "ok"
     chips = []
+    if issues is not None:
+        ready = not issues and not blocked
+        color = ("#10b981" if ready else
+                 "#f59e0b" if kind == "warn" and not blocked else "#ef4444")
+        chips.append(
+            '<span style="display:inline-flex;align-items:center;'
+            'white-space:nowrap;padding:.3rem .7rem;border-radius:999px;'
+            f'font-size:.82rem;font-weight:700;color:#fff;background:{color};">'
+            f'{"Ready to record" if ready else "Cannot record"}</span>')
     for section, label in _TS_SECTIONS:
         texts = [t for _, s, t in issues or () if s == section]
         levels = {level for level, s, _ in issues or () if s == section}
@@ -1494,6 +1481,24 @@ def _ov_checks_html(issues: list[tuple[str, str | None, str]] | None) -> str:
     return (f'<div class="gb-checks-state gb-checks-{kind}">'
             '<div style="display:flex;flex-wrap:wrap;gap:.4rem;">'
             + "".join(chips) + f'</div>{notes}</div>')
+
+
+def _ov_problems_html(issues: list[tuple[str, str | None, str]] | None) -> str:
+    """What stops the recording, above the button to Troubleshooting."""
+    n = sum(level == "fail" for level, _, _ in issues or ())
+    items = "".join(
+        '<li style="display:flex;gap:.5rem;align-items:baseline;">'
+        f'<span style="color:{_DIAG_MARKS[level][0]};font-weight:800;">'
+        f'{_DIAG_MARKS[level][1]}</span><span>{html.escape(text)}</span></li>'
+        for level, _, text in issues or ())
+    return (
+        '<div style="display:flex;align-items:center;gap:.6rem;">'
+        '<span style="font-size:1.2rem;line-height:1;">⛔</span>'
+        '<span style="font-weight:700;font-size:1.02rem;'
+        'color:var(--body-text-color);">'
+        f'{n} problem{"s" if n > 1 else ""} to fix before recording</span></div>'
+        '<ul style="list-style:none;margin:.35rem 0 0;padding:0;'
+        f'display:grid;gap:.15rem;">{items}</ul>')
 
 
 def _ts_first_section(issues: list[tuple[str, str | None, str]] | None) -> str:
@@ -2708,15 +2713,18 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 client.get_angle_status())
 
     def poll_ov_checks():
-        """The Overview's verdict, its Troubleshooting button (primary while
-        there is something to look at) and the calibration callout (not while
+        """The Overview's chips, the callout of what stops the recording (and
+        its way to Troubleshooting), and the calibration callout (not while
         the sensors it reads are down)."""
         cap, cam, dcam, angle = _ts_read()
         issues = _ov_checks(cap, cam, dcam, angle)
         must_calib = bool((cap or {}).get("needs_calibration")
                           and not (angle or {}).get("error"))
-        return (_ov_checks_html(issues),
-                gr.update(variant="primary" if issues else "secondary"),
+        failing = any(level == "fail" for level, _, _ in issues or ())
+        return (_ov_checks_html(issues,
+                                bool((cap or {}).get("blocked_reason"))),
+                _ov_problems_html(issues),
+                gr.update(visible=failing),
                 gr.update(visible=must_calib))
 
     def _ts_gone(classes: list[str], shown: bool) -> dict:
@@ -2823,11 +2831,11 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 gr.update(value="Rebooting…", interactive=False),
                 _ts_pw(False, value=""))
 
-    def _troubleshooting(open_btn: gr.Button) -> None:
-        """The Troubleshooting popup `open_btn` opens: one section per part of
-        the grabette, each with its checks and what to do about them. The
-        angle sensors' section is the Diagnose popup's report, fixes
-        included."""
+    def _troubleshooting():
+        """The Troubleshooting popup: one section per part of the grabette,
+        each with its checks and what to do about them. The angle sensors'
+        section is the Diagnose popup's report, fixes included. Returns a
+        function that makes a button open it."""
         with gr.Column(visible=False,
                        elem_classes=["gb-diag-modal", "gb-ts-modal"]) as modal:
             with gr.Column(elem_classes=["gb-diag-card", "gb-ts-card"]):
@@ -2885,10 +2893,12 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         # would: setting the tabs' `selected` from here pins them to it, and
         # the next clicks on the others bounce back. The click's select event
         # then runs that part's checks like any other.
-        open_btn.click(
-            fn=on_ts_open,
-            outputs=[modal, first, timer, depth_msg, *outputs],
-        ).then(fn=None, inputs=first, js=_TS_SHOW_JS)
+        def bind_open(btn: gr.Button) -> None:
+            btn.click(
+                fn=on_ts_open,
+                outputs=[modal, first, timer, depth_msg, *outputs],
+            ).then(fn=None, inputs=first, js=_TS_SHOW_JS)
+
         timer.tick(fn=on_ts_tick, outputs=outputs)
         for tab, sec in zip(tab_list, (s for s, _ in _TS_SECTIONS)):
             tab.select(fn=lambda sec=sec: sec, outputs=section, queue=False
@@ -2915,6 +2925,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                        outputs=[modal, timer, angle.timer, angle.password,
                                 rgb_pw, rgb_msg],
                        queue=False)
+        return bind_open
 
     # ── Test Recording page ───────────────────────────────────────────
     #
@@ -3691,13 +3702,16 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
 
             # Before anything else on the device: whether it can record, what
             # stops it, and the way to the fix.
-            with gr.Row(elem_id="ov-checks", elem_classes="gb-checks"):
-                ov_checks_html = gr.HTML(_ov_checks_html(None))
-                with gr.Row(elem_classes="gb-checks-actions"):
-                    ov_ts_btn = gr.Button("Troubleshooting", size="sm",
-                                          scale=0, min_width=0,
-                                          elem_classes="gb-checks-open")
-            _troubleshooting(ov_ts_btn)
+            ov_checks_html = gr.HTML(_ov_checks_html(None), elem_id="ov-checks",
+                                     elem_classes="gb-checks")
+            with gr.Row(visible=False, elem_id="ov-ts-fault",
+                        elem_classes=["gb-calib-box", "gb-ts-callout"]) as ov_ts_box:
+                ov_problems_html = gr.HTML("")
+                ov_ts_btn = gr.Button("→ Troubleshooting", variant="primary",
+                                      size="lg", scale=0, min_width=0,
+                                      elem_classes="gb-calib-open")
+            ov_ts_bind = _troubleshooting()
+            ov_ts_bind(ov_ts_btn)
             ov_calib_box, ov_calib_bind = _calibration_prompt(_CALIB_REQUIRED,
                                                               "ov-calib")
 
@@ -3735,6 +3749,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 with gr.Column(scale=1, min_width=230):
                     gr.HTML(_section_label("Health"))
                     ov_health_card = gr.HTML(_ov_health_card(None))
+                    with gr.Row(elem_classes="ov-tile-btn"):
+                        ov_ts_bind(gr.Button("Troubleshooting", size="sm"))
 
             # ── Recording and the episodes it produces ────────────────
             # On a phone: Grabette data, then Account & fleet, then status
@@ -3809,7 +3825,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         demo.load(fn=None, js=_DIAG_POPUP_JS)
 
         ov_checks_timer = gr.Timer(3.0)
-        ov_checks_outputs = [ov_checks_html, ov_ts_btn, ov_calib_box]
+        ov_checks_outputs = [ov_checks_html, ov_problems_html, ov_ts_box,
+                             ov_calib_box]
         ov_checks_timer.tick(fn=poll_ov_checks, outputs=ov_checks_outputs)
         demo.load(fn=poll_ov_checks, outputs=ov_checks_outputs)
 
