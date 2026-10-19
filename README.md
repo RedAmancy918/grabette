@@ -8,7 +8,7 @@
 Open-source toolkit for collecting robotic manipulation demonstrations and
 turning them into training-ready datasets.
 
-A GRABETTE rig records synchronized **camera + IMU** streams from hand-held or
+A GRABETTE rig records synchronized **camera + depth** streams (+ IMU with the OAK-D SR) from hand-held or
 gripper-mounted devices, recovers camera trajectories with SLAM, and exports
 [LeRobot](https://huggingface.co/docs/lerobot) datasets for policy learning.
 The data-collection pipeline is **robot-agnostic**.
@@ -86,8 +86,8 @@ uv run --package grabette python packages/grabette/main.py   # run a service (mo
 ```
 
 > **The one rule to know:** this repo is a single uv **workspace** — one shared
-> `.venv` and one `uv.lock` at the root. A bare `uv sync`, run from *anywhere*
-> in the repo, builds the **whole workspace** and installs every package's
+> `.venv` and one `uv.lock` at the root. A bare `uv sync`, run from the repo
+> root, builds the **whole workspace** and installs every package's
 > dependencies — gigabytes of torch/mujoco on a Raspberry Pi if you're not
 > careful. Therefore:
 >
@@ -97,7 +97,10 @@ uv run --package grabette python packages/grabette/main.py   # run a service (mo
 > - `integrations/DiffusionPolicy` is deliberately **standalone** (own
 >   `uv.lock`, heavy training pins) — inside it a plain `uv sync` is correct.
 
-**On-device install (Raspberry Pi):** each device package ships a `make
+**On-device install (Raspberry Pi):** the simplest path is to flash the
+prebuilt `grabetteos` / `gripetteos` image from the
+[latest grabette-os release](https://github.com/pollen-robotics/grabette-os/releases/latest),
+which has everything below baked in. For a manual install, each device package ships a `make
 install-rpi` target that builds the `--system-site-packages` venv `picamera2`
 needs (a bare `uv sync` skips it and the service falls back to the mock
 backend). Follow the package's own README for the exact steps:

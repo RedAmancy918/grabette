@@ -6,6 +6,7 @@ The legacy BMI088 IMU was dropped — IMU data now comes from the OAK-D.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -37,6 +38,10 @@ FPS = 46
 # frames before starting the recording clock. Safety fallback only — the OAK-D
 # normally becomes ready well within this.
 OAKD_READY_TIMEOUT_S = 5.0
+# Within this margin of the keep-alive power-down the OAK-D no longer reports
+# itself warm: a start scheduled with the short lead could otherwise find it
+# powered down at T0.
+OAKD_WARM_MARGIN_S = 5.0
 
 
 def _camera_metadata(model: str, cap) -> dict:
@@ -101,6 +106,7 @@ class RpiBackend(Backend):
         self._capturing = False
         self._starting = False
         self._stopping = False  # True during stop_capture teardown (drives the fast-blink LED)
+        self._finalizing = False  # True from a stop until its deferred writes are done
         # True while the OAK-D device is being brought up (init in progress).
         # Distinguishes the normal warm-up window from a genuine init failure
         # so the UI can show "Starting…" instead of "Error".
@@ -137,6 +143,14 @@ class RpiBackend(Backend):
         self._oakd_auto_enabled = False
         # Pending "power the OAK-D down after the keep-alive window" timer.
         self._oakd_keepalive_task = None
+        # time.monotonic() at which that timer fires (None = not armed).
+        self._oakd_powerdown_at = None
+        # Camera object that last passed wait_until_ready; replacing self._oakd
+        # invalidates it.
+        self._depth_ready_cam = None
+        # Two concurrent warm-ups would otherwise both init the camera, and the
+        # second finds the USB device busy.
+        self._oakd_power_lock = asyncio.Lock()
         # Set when stop_capture defers hardware re-init out of the stop path;
         # start_capture then lazily re-inits the camera/angle (overlapped with
         # the OAK-D warmup) so re-init never delays the LED/stop.
@@ -497,29 +511,48 @@ class RpiBackend(Backend):
         self._cancel_oakd_keepalive()
         self._oakd_auto_enabled = False
 
-        if on == self._enable_oakd and (on == self.is_oakd_initialized):
-            return  # already in the requested state
-
-        import asyncio
         loop = asyncio.get_event_loop()
 
-        if on:
-            self._enable_oakd = True
-            self._oakd_initializing = True
-            try:
-                await loop.run_in_executor(None, self._init_oakd)
-            finally:
-                self._oakd_initializing = False
-            logger.info("OAK-D enabled via UI")
-        else:
-            self._enable_oakd = False
-            if self._oakd is not None:
+        async with self._oakd_power_lock:
+            if on == self._enable_oakd and (on == self.is_oakd_initialized):
+                return  # already in the requested state
+
+            if on:
+                self._enable_oakd = True
+                self._oakd_initializing = True
                 try:
-                    await loop.run_in_executor(None, self._oakd.shutdown)
-                except Exception as e:
-                    logger.warning("OAK-D shutdown error: %s", e)
-                self._oakd = None
-            logger.info("OAK-D disabled via UI")
+                    await loop.run_in_executor(None, self._init_oakd)
+                finally:
+                    self._oakd_initializing = False
+                logger.info("OAK-D enabled via UI")
+            else:
+                self._enable_oakd = False
+                if self._oakd is not None:
+                    try:
+                        await loop.run_in_executor(None, self._oakd.shutdown)
+                    except Exception as e:
+                        logger.warning("OAK-D shutdown error: %s", e)
+                    self._oakd = None
+                logger.info("OAK-D disabled via UI")
+
+    @property
+    def is_depth_camera_warm(self) -> bool:
+        """Powered, past its warm-up (wait_until_ready succeeded), and not about
+        to be powered down by the keep-alive."""
+        cam = self._oakd
+        if cam is None or not cam.is_initialized or cam is not self._depth_ready_cam:
+            return False
+        at = self._oakd_powerdown_at
+        return at is None or at - time.monotonic() > OAKD_WARM_MARGIN_S
+
+    async def _wait_depth_ready(self) -> None:
+        """Wait until the depth camera is ready, and remember it once it is."""
+        cam = self._oakd
+        if cam is None or not cam.is_initialized:
+            return
+        loop = asyncio.get_event_loop()
+        if await loop.run_in_executor(None, cam.wait_until_ready, OAKD_READY_TIMEOUT_S):
+            self._depth_ready_cam = cam
 
     # ── OAK-D keep-alive (auto-power-down after a grace period) ────────────────
 
@@ -527,6 +560,7 @@ class RpiBackend(Backend):
         """Cancel a pending auto-power-down, if any."""
         task = self._oakd_keepalive_task
         self._oakd_keepalive_task = None
+        self._oakd_powerdown_at = None
         if task is not None and not task.done():
             task.cancel()
 
@@ -534,6 +568,7 @@ class RpiBackend(Backend):
         """Arm the auto-power-down timer (replaces any existing one)."""
         import asyncio
         self._cancel_oakd_keepalive()
+        self._oakd_powerdown_at = time.monotonic() + self._oakd_keepalive_s
         self._oakd_keepalive_task = asyncio.create_task(self._oakd_keepalive_powerdown())
 
     async def _oakd_keepalive_powerdown(self) -> None:
@@ -546,6 +581,7 @@ class RpiBackend(Backend):
             return
         # Clear our own ref first so set_oakd_enabled() below is a no-op cancel.
         self._oakd_keepalive_task = None
+        self._oakd_powerdown_at = None
         if self._capturing or self.is_teleop_active or not self._oakd_auto_enabled:
             return
         logger.info("OAK-D keep-alive expired — powering down")
@@ -701,29 +737,30 @@ class RpiBackend(Backend):
         and the first frame. Idempotent; fast no-op when already warm."""
         if self._capturing:
             return
-        import asyncio
-        loop = asyncio.get_event_loop()
         # Keep it warm for the imminent capture (don't let a keep-alive power
         # it down between now and T0).
         self._cancel_oakd_keepalive()
-        busy = self.busy_reason
-        if busy:
-            raise RuntimeError(busy)
-        if not self.is_oakd_initialized:
-            await self.set_oakd_enabled(True)
-            self._oakd_auto_enabled = True
-        if self._needs_reinit:
-            self._reinit_hardware()
-        elif self._enable_angle and self._angle is None:
-            self._init_angle_sensors()  # the retry that can clear the fault below
-        # Refuse the warm-up too, not just start_capture: this runs BEFORE a
-        # group's shared T0, so failing here lets the peer/fleet learn this
-        # device is out before the synchronized start rather than at T0.
-        self.raise_if_capture_blocked()
-        if self._oakd and self._oakd.is_initialized:
-            await loop.run_in_executor(
-                None, self._oakd.wait_until_ready, OAKD_READY_TIMEOUT_S,
-            )
+        try:
+            busy = self.busy_reason
+            if busy:
+                raise RuntimeError(busy)
+            if not self.is_oakd_initialized:
+                await self.set_oakd_enabled(True)
+                self._oakd_auto_enabled = True
+            if self._needs_reinit:
+                self._reinit_hardware()
+            elif self._enable_angle and self._angle is None:
+                self._init_angle_sensors()  # the retry that can clear the fault below
+            # Refuse the warm-up too, not just start_capture: this runs BEFORE a
+            # group's shared T0, so failing here lets the peer/fleet learn this
+            # device is out before the synchronized start rather than at T0.
+            self.raise_if_capture_blocked()
+            await self._wait_depth_ready()
+        finally:
+            # Not every warm-up is followed by a capture (session open, refused
+            # start): don't leave an auto-enabled camera on forever.
+            if self._oakd_auto_enabled and self.is_oakd_initialized and not self._capturing:
+                self._schedule_oakd_keepalive()
 
     async def start_capture(self, episode_dir: Path) -> None:
         if self._capturing:
@@ -785,10 +822,7 @@ class RpiBackend(Backend):
             # Defer the recording clock until the OAK-D is producing valid frames
             # (autoexposure + depth converged), so t=0 lands on good data instead
             # of cold-boot warmup. No-op/fast if the OAK-D is already warm.
-            if self._oakd and self._oakd.is_initialized:
-                await loop.run_in_executor(
-                    None, self._oakd.wait_until_ready, OAKD_READY_TIMEOUT_S,
-                )
+            await self._wait_depth_ready()
 
             self._episode_dir = episode_dir
 
@@ -970,6 +1004,7 @@ class RpiBackend(Backend):
         # moment. call_soon schedules the callback right after this coroutine
         # returns, on the same event loop — the caller (button listener /
         # REST endpoint) sees stop_capture complete immediately.
+        self._finalizing = True
         loop.call_soon(
             self._finalize_and_reinit,
             episode_dir, frame_timestamps, angle_samples, meta, urdf_path,
@@ -1053,6 +1088,9 @@ class RpiBackend(Backend):
                 self._speaker.play_saved()
             else:
                 self._speaker.play_error()
+        # The episode is on disk and its cue is out: a waiting goal cue may go
+        # (see app.main._play_goal_when_saved). The re-init below is for the next take.
+        self._finalizing = False
 
         _t = time.monotonic()
         try:
@@ -1115,6 +1153,10 @@ class RpiBackend(Backend):
     @property
     def is_stopping(self) -> bool:
         return self._stopping
+
+    @property
+    def is_finalizing(self) -> bool:
+        return self._finalizing
 
     def _note_angle_output(self, angle_samples) -> None:
         """Record whether the finished recording actually produced angle data.
