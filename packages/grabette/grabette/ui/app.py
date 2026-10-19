@@ -203,11 +203,11 @@ html.gb-off .toast-wrap {
 #ov-page #ov-account {
     gap: .5rem !important;
 }
-/* The Overview's section rules, 2px closer to what they separate than
-   _OV_RULE elsewhere (gradio already drops its bottom margin, being the
-   last thing in its block). */
+/* The Overview's section rules, closer to what they separate than _OV_RULE
+   elsewhere (gradio already drops its bottom margin, being the last thing in
+   its block). */
 #ov-page .ov-rule .html-container > div > div {
-    margin: calc(1.4rem - 2px) 0 -2px !important;
+    margin: calc(1.4rem - 4px) 0 -3px !important;
 }
 /* An empty note (most of the time) takes no room under its tile. */
 #ov-page .ov-note:not(:has(p)) {
