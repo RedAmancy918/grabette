@@ -1259,12 +1259,13 @@ def _diag_cable_help_html(name: str | None) -> str:
         for t in _CABLE_TIPS)
     return (
         '<div style="margin-top:.8rem;">'
+        '<ul style="list-style:none;margin:0;padding:0;'
+        f'display:grid;gap:.3rem;font-weight:600;">{tips}</ul>'
         f'<img src="/ui-assets/{name}-sensor-cable.gif" '
         f'alt="The {name} sensor cable, from the HAT to the sensor" '
-        'style="width:100%;display:block;border-radius:10px;background:#fff;" '
-        'onerror="this.style.display=\'none\';">'
-        '<ul style="list-style:none;margin:.6rem 0 0;padding:0;'
-        f'display:grid;gap:.3rem;font-weight:600;">{tips}</ul></div>')
+        'style="width:100%;display:block;margin-top:.6rem;'
+        'border-radius:10px;background:#fff;" '
+        'onerror="this.style.display=\'none\';"></div>')
 
 
 def _replay_video_iframe(episode_id: str, stream: str = "raw") -> str:
