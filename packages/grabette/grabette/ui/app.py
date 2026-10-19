@@ -207,7 +207,7 @@ html.gb-off .toast-wrap {
    elsewhere (gradio already drops its bottom margin, being the last thing in
    its block). */
 #ov-page .ov-rule .html-container > div > div {
-    margin: calc(1.4rem - 5px) 0 -3px !important;
+    margin: calc(1.4rem - 6px) 0 -3px !important;
 }
 /* An empty note (most of the time) takes no room under its tile. */
 #ov-page .ov-note:not(:has(p)) {
