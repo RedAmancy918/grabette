@@ -173,9 +173,7 @@
 
         /* Steps beside the animation rather than under it: it halves the gif's
            width without shrinking the text, and the two read together. */
-        .power-row { display: flex; align-items: center; gap: 1.4rem; }
-        .power-row .video-frame { flex: 0 0 300px; min-width: 0; }
-        .power-row .power-steps { flex: 1; min-width: 0; }
+        .power-row { display: grid; gap: 1rem; }
         .steps-note { color: #8b98ad; font-size: .82rem; line-height: 1.45; margin: .9rem 0 0; }
 
         /* Numbered like the cards in the WiFi tab, so a step looks like a step
@@ -634,8 +632,6 @@
             body { padding: 1rem; }
             .lede-row { gap: .8rem; }
             .hero-logo { width: 52px; }
-            .power-row { flex-direction: column; align-items: stretch; gap: 1rem; }
-            .power-row .video-frame { flex: none; }
             .calib-photos img { height: 150px; }
             .features { grid-template-columns: 1fr; }
             .tabs { gap: .15rem; padding: .25rem; }
@@ -743,7 +739,7 @@
         <div class="panel" id="panel-wifi" role="tabpanel" aria-labelledby="tab-wifi" tabindex="0" hidden>
         <div class="section-head">
             <h2>Connect your Grabette to WiFi</h2>
-            <p> You only need to have your <b>Bluetooth on</b> and to be next to your Grabette.</p>
+            <p> Connect your Grabette to your usual Wi-Fi network using a Bluetooth pairing.<br> You only need to have your <b>Bluetooth on</b> and to be next to your Grabette.</p>
         </div>
 
         <!-- The browser requirement is the single most common reason this page
@@ -752,10 +748,10 @@
         <div class="browser-note" id="browserNote">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             <div id="browserNoteText">
-                <b>Chrome or Edge only</b> — The Web Bluetooth Tool only works on those browsers. <br> 
-                <details><summary>No Grabette found ?</summary>
+                <span id="browserNoteHead"><b>Chrome or Edge only</b> — The Web Bluetooth Tool only works on those browsers.</span> <br>
+                <details id="browserTrouble"><summary>No Grabette found ?</summary>
                 <ol class="trouble">
-                    <li>If you're under Chrome, <b>enable</b> this flag:
+                    <li>If you're under Chrome, <b>enable</b> this flag, then <b>restart</b> the browser:
                         <button type="button" class="copy-url" id="copyFlag" onclick="copyCode(this)"
                                 title="Copy to clipboard">
                             <code id="flagUrl"></code>
@@ -1729,39 +1725,41 @@
             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     }
 
-    const browserNote = document.getElementById('browserNote');
-    const browserNoteText = document.getElementById('browserNoteText');
+    // Marks the tool as unusable. The note is inside the WiFi panel, which the
+    // reader may never open, so the tab gets flagged too.
+    function blockTool(html, target = document.getElementById('browserNoteText')) {
+        document.getElementById('browserNote').classList.add('fatal');
+        target.innerHTML = html;
+        document.getElementById('btnConnect').disabled = true;
+        document.getElementById('wifiTabWarn').hidden = false;
+    }
+
     if (!window.isSecureContext) {
         // Name the port the page is actually served on, so the hint matches
         // whatever the reader is running.
         const localUrl = 'http://localhost' + (location.port ? ':' + location.port : '');
-        browserNote.classList.add('fatal');
-        browserNoteText.innerHTML =
-            "<b>Bluetooth doesn't work on this address.</b> Use " +
+        blockTool("<b>Bluetooth doesn't work on this address.</b> Use " +
             '<a href="https://pollen-robotics.github.io/grabette/">pollen-robotics.github.io/grabette/</a>' +
-            ' — or, for a local copy, <code>' + localUrl + '</code>.';
-        document.getElementById('btnConnect').disabled = true;
-        document.getElementById('wifiTabWarn').hidden = false;
+            ' — or, for a local copy, <code>' + localUrl + '</code>.');
     } else if (isIOS()) {
         // Every iOS browser is WebKit underneath, Chrome included, and WebKit
         // has no Web Bluetooth — so the "use Chrome" advice below is a dead end
         // exactly where a reader is most likely to have already tried it.
-        browserNote.classList.add('fatal');
-        browserNoteText.innerHTML =
-            "<b>iPhone and iPad can't run this tool.</b> Every browser there, " +
+        blockTool("<b>iPhone and iPad can't run this tool.</b> Every browser there, " +
             'Chrome included, uses Apple\'s engine, which has no Web Bluetooth. ' +
-            'Use a computer or an Android phone.';
-        document.getElementById('btnConnect').disabled = true;
-        document.getElementById('wifiTabWarn').hidden = false;
+            'Use a computer or an Android phone.');
     } else if (!navigator.bluetooth) {
-        browserNote.classList.add('fatal');
-        browserNoteText.innerHTML =
-            '<b>This browser cannot run the tool.</b> No Web Bluetooth here — ' +
-            'open this page in Chrome or Edge.';
-        document.getElementById('btnConnect').disabled = true;
-        // The note is inside the WiFi panel, which the reader may never open —
-        // mark the tab so a dead-end tool is not discovered three minutes in.
-        document.getElementById('wifiTabWarn').hidden = false;
+        // Chrome on Linux and Brave hide Web Bluetooth behind a flag: keep the
+        // Chrome flag step of the troubleshooting, unfolded, and add Brave's.
+        blockTool('<b>No Web Bluetooth in this browser.</b>', document.getElementById('browserNoteHead'));
+        const trouble = document.getElementById('browserTrouble');
+        const steps = trouble.querySelector('ol');
+        [...steps.children].slice(1).forEach(li => li.remove());
+        steps.insertAdjacentHTML('afterbegin', '<li>You need to use <b>Chrome, Edge or Brave</b>.</li>');
+        steps.insertAdjacentHTML('beforeend', "<li>If you're under Brave, <b>enable</b> this flag, then <b>restart</b> the browser:" +
+            '<button type="button" class="copy-url" onclick="copyCode(this)" title="Copy to clipboard">' +
+            '<code>brave://flags/#brave-web-bluetooth-api</code><span class="copy-hint">Copy</span></button></li>');
+        trouble.replaceWith(steps);
     }
 
     // ---- Angle-sensor calibration (tab 4) ----
