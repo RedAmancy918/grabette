@@ -198,6 +198,11 @@ html.gb-off .toast-wrap {
 #ov-page .ov-rule-bottom {
     display: none !important;
 }
+/* A little tighter than gradio's default between the rows of a section. */
+#ov-page #ov-data,
+#ov-page #ov-account {
+    gap: .5rem !important;
+}
 /* An empty note (most of the time) takes no room under its tile. */
 #ov-page .ov-note:not(:has(p)) {
     display: none !important;
@@ -383,12 +388,17 @@ html.gb-off .toast-wrap {
     #ov-page .ov-cta a {
         width: 100% !important;
     }
-    /* On a phone the errands come before the status tiles. */
+    /* On a phone the errands come before the status tiles, without their
+       descriptions: room for the Fleet Space button on the first screen. */
     #ov-page #ov-data {
         order: -2;
     }
     #ov-page #ov-account {
         order: -1;
+    }
+    #ov-page #ov-data .ov-group-hint,
+    #ov-page #ov-account .ov-group-hint {
+        display: none !important;
     }
     /* …but a device that cannot record says so before anything else. */
     #ov-page #ov-checks,
@@ -2303,7 +2313,7 @@ def _ov_group_title(title: str, hint: str) -> str:
         '<div style="margin:0 0 .6rem;">'
         '<div style="font-size:1.1rem;font-weight:700;'
         f'color:var(--body-text-color);">{html.escape(title)}</div>'
-        '<div style="font-size:.85rem;opacity:.7;">'
+        '<div class="ov-group-hint" style="font-size:.85rem;opacity:.7;">'
         f'{html.escape(hint)}</div></div>'
     )
 
