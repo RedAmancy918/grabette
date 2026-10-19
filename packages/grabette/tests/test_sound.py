@@ -469,6 +469,15 @@ def test_test_sequence_plays_the_recording_cues_in_order(monkeypatch):
     speaker.close()
 
 
+def test_test_sequence_can_play_a_single_cue(monkeypatch):
+    calls = []
+    speaker = _ready_speaker(monkeypatch, calls)
+    monkeypatch.setattr(sound.threading, "Thread", _inline_thread)
+    assert speaker.play_test_sequence((sound.CUE_SAVED,)) is True
+    assert [c[-1].rsplit("/", 1)[-1] for c in calls] == [f"{sound.CUE_SAVED}.wav"]
+    speaker.close()
+
+
 def test_saved_volume_round_trips(monkeypatch, tmp_path):
     monkeypatch.setattr(sound, "VOLUME_FILE", tmp_path / "sub" / "sound_volume")
     assert sound.load_saved_volume(0.6) == 0.6       # nothing saved yet
@@ -483,3 +492,15 @@ def test_corrupt_saved_volume_falls_back_to_default(monkeypatch, tmp_path):
     path.write_text("loud\n")
     monkeypatch.setattr(sound, "VOLUME_FILE", path)
     assert sound.load_saved_volume(0.6) == 0.6
+
+
+def test_goal_cue_is_a_rising_fanfare_of_its_own():
+    """Heard once per session, from across the room: it must not pass for the
+    start pair (also rising) — longer and with more notes — nor share a pitch
+    with any take-level cue."""
+    freqs = [f for f, _ in sound.GOAL_TONES]
+    assert freqs == sorted(freqs)
+    assert len(freqs) > len(sound.START_TONES)
+    assert sum(d for _, d in sound.GOAL_TONES) > sum(d for _, d in sound.START_TONES)
+    others = (sound.START_TONES, sound.STOP_TONES, sound.SAVED_TONES, sound.ERROR_TONES)
+    assert not set(freqs) & {f for cue in others for f, _ in cue}

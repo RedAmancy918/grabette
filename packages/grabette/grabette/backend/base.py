@@ -162,6 +162,12 @@ class Backend(ABC):
     @abstractmethod
     def is_capturing(self) -> bool: ...
 
+    @property
+    def is_finalizing(self) -> bool:
+        """True between a stop and the end of its deferred post-stop work (the
+        "saved" cue fires there). Default False for backends with none."""
+        return False
+
     @abstractmethod
     def get_frame_jpeg(self) -> bytes | None: ...
 
