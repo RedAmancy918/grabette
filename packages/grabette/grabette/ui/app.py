@@ -203,6 +203,12 @@ html.gb-off .toast-wrap {
 #ov-page #ov-account {
     gap: .5rem !important;
 }
+/* The Overview's section rules, 2px closer to what they separate than
+   _OV_RULE elsewhere (gradio already drops its bottom margin, being the
+   last thing in its block). */
+#ov-page .ov-rule .html-container > div > div {
+    margin: calc(1.4rem - 2px) 0 -2px !important;
+}
 /* An empty note (most of the time) takes no room under its tile. */
 #ov-page .ov-note:not(:has(p)) {
     display: none !important;
@@ -3871,7 +3877,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             # On a phone: Grabette data, then Account & fleet, then status
             # (see #ov-data / #ov-account in the CSS).
             with gr.Column(elem_id="ov-data"):
-                gr.HTML(_OV_RULE, elem_classes="ov-rule-top")
+                gr.HTML(_OV_RULE, elem_classes=["ov-rule", "ov-rule-top"])
                 gr.HTML(_ov_group_title(
                     "Grabette data",
                     "Check the recording works, then browse what is on the device.",
@@ -3892,7 +3898,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
 
             # ── Account | Fleet Space ─────────────────────────────────
             with gr.Column(elem_id="ov-account"):
-                gr.HTML(_OV_RULE)
+                gr.HTML(_OV_RULE, elem_classes="ov-rule")
                 gr.HTML(_ov_group_title(
                     "Account & fleet",
                     "Sign in to Hugging Face, and open the Fleet Space to start recording organized data and creating datasets.",
@@ -3904,7 +3910,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                     with gr.Column(scale=1, min_width=260):
                         gr.HTML(_section_label("Fleet Space"))
                         gr.HTML(_FLEET_BUTTON_HTML.format(url=settings.relay_url))
-                gr.HTML(_OV_RULE, elem_classes="ov-rule-bottom")
+                gr.HTML(_OV_RULE, elem_classes=["ov-rule", "ov-rule-bottom"])
 
         ov_mode_state = gr.State(_OV_RGB)
         # State first: on_ov_mode blocks while the depth camera starts.
