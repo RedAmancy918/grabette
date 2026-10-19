@@ -9,10 +9,11 @@ import math
 import re
 import time
 from functools import partial
+from pathlib import Path
 from urllib.parse import quote
 
 import gradio as gr
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from grabette.config import settings
 from grabette.ui.api_client import GrabetteClient
@@ -558,7 +559,7 @@ html.gb-off .toast-wrap {
         filter: grayscale(1) opacity(.6);
         transition: filter .2s;
     }
-    #tr-page img.tr-gif:hover {
+    #tr-page img.tr-gif.tr-playing {
         filter: none;
     }
 }
@@ -663,25 +664,37 @@ def _hf_login_only_html(label: str) -> str:
     )
 
 
-# Hover-to-play, on pointers that can hover; phones keep the plain looping GIF.
-# Each hover gets a fresh blob: URL so the animation restarts from frame 0 —
-# browsers share one animation clock per URL — without downloading it again.
-# window.URL, not URL: inside an inline handler that resolves to document.URL.
-_GIF_ENTER_JS = (
-    "if(!matchMedia('(hover: hover)').matches)return;var i=this;"
-    "if(i._b){i.src=window.URL.createObjectURL(i._b);return}"
-    "fetch(i.dataset.gif).then(function(r){return r.blob()}).then(function(b){"
-    "i._b=b;if(i.matches(':hover'))i.src=window.URL.createObjectURL(b)})"
-)
-_GIF_LEAVE_JS = (
-    "if(!matchMedia('(hover: hover)').matches)return;"
-    "if(this.src.startsWith('blob:'))window.URL.revokeObjectURL(this.src);"
-    "this.src=this.dataset.poster"
-)
-_GIF_LOAD_JS = (
-    "if(!this.dataset.m&&!matchMedia('(hover: hover)').matches)"
-    "{this.dataset.m=1;this.src=this.dataset.gif}"
-)
+# On a PC the GIFs play one after the other; phones loop them all. A fresh
+# blob: URL restarts the animation from frame 0.
+_GIF_CYCLE_JS = """
+() => {
+  let k = 0;
+  (function next() {
+    const gifs = document.querySelectorAll('#tr-page img.tr-gif');
+    if (!gifs.length) return setTimeout(next, 500);
+    if (!matchMedia('(hover: hover)').matches) return gifs.forEach(i => i.src = i.dataset.gif);
+    const i = gifs[k++ % gifs.length];
+    fetch(i.dataset.gif).then(r => r.blob()).then(b => {
+      i.src = URL.createObjectURL(b);
+      i.classList.add('tr-playing');
+      setTimeout(() => {
+        URL.revokeObjectURL(i.src);
+        i.src = i.dataset.poster;
+        i.classList.remove('tr-playing');
+        next();
+      }, +i.dataset.ms);
+    });
+  })();
+}
+"""
+
+
+def _gif_ms(filename: str) -> int:
+    try:
+        with Image.open(Path(__file__).parent / "assets" / filename) as im:
+            return sum(f.info.get("duration", 100) for f in ImageSequence.Iterator(im))
+    except OSError:
+        return 3000
 
 
 # Test Recording shows the grabette's own button being pressed instead of
@@ -698,15 +711,11 @@ def _button_gif(filename: str, title: str, caption_html: str) -> str:
         '<figure style="margin:0 auto;width:100%;">'
         '<div class="tr-gif-title">'
         f'{html.escape(title)}</div>'
-        # Still and grey until hovered: the page shows a first-frame poster
-        # and only swaps the GIF in on mouseenter.
         f'<img class="tr-gif" src="/ui-assets/{poster}" alt="{alt}"'
         f' data-gif="/ui-assets/{filename}" data-poster="/ui-assets/{poster}"'
+        f' data-ms="{_gif_ms(filename)}"'
         ' style="width:100%;aspect-ratio:1;object-fit:cover;display:block;'
         'border-radius:14px;background:#0f172a;"'
-        f' onmouseenter="{html.escape(_GIF_ENTER_JS)}"'
-        f' onmouseleave="{html.escape(_GIF_LEAVE_JS)}"'
-        f' onload="{html.escape(_GIF_LOAD_JS)}"'
         ' onerror="this.style.display=\'none\';'
         'this.nextElementSibling.style.display=\'flex\';">'
         '<div style="display:none;align-items:center;justify-content:center;'
@@ -1114,91 +1123,43 @@ _SOUND_CUES = (
 # what the LED and the beeps say.
 _TR_HOWTO_HTML = "<div class='tr-howto-title'>Wait for the start and stop signals</div>"
 
-# The "Signal" buttons under the animations play the cue the device will make.
-# A gradio button holds text only, so the ear and the cue are CSS masks, drawn
-# like _ramp_icon/_cue_icon and painted in the button's own text colour.
-def _css_mask(svg: str) -> str:
-    return f'url("data:image/svg+xml,{quote(svg)}")'
-
-
-_EAR_SVG = (
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'"
-    " stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-    "<path d='M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0'/>"
-    "<path d='M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4'/></svg>"
-)
-_START_SIGNAL_SVG = (
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 20'>"
-    "<polygon points='4,18 28,18 28,2'/></svg>"
-)
-# Falling + one beep, the "+" and the dot sized like the ramp beside them.
-_STOP_SIGNAL_SVG = (
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 20'>"
-    "<polygon points='4,2 4,18 28,18'/>"
-    "<rect x='37' y='9' width='10' height='2'/><rect x='41' y='5' width='2' height='10'/>"
-    "<circle cx='60' cy='10' r='3.5'/></svg>"
-)
-_TR_SIGNAL_CSS = f"""
-#tr-page .tr-howto-title {{
+_TR_SIGNAL_CSS = """
+#tr-page .tr-howto-title {
     margin: .25rem 0 .25rem;
     text-align: center;
     font-size: 1.05rem;
     font-weight: 700;
-}}
+}
 /* Sits right under its caption: no stretched column pushing it down. */
-#tr-page .tr-gif-col {{
+#tr-page .tr-gif-col {
     gap: 0 !important;
     justify-content: flex-start !important;
-}}
-#tr-page .tr-gif-col > * {{
+}
+#tr-page .tr-gif-col > * {
     flex-grow: 0 !important;
-}}
-/* Grey, and shaped like the camera chips below it. */
-#tr-page button.tr-signal {{
+}
+#tr-page button.tr-signal {
     align-self: center !important;
     width: auto !important;
     min-width: 0 !important;
     flex: none !important;
-    gap: .4rem !important;
     /* Close to its caption, clear of what follows (the chips on a PC, the
        stop animation on a phone). */
     margin: .35rem 0 1.25rem !important;
     padding: .3rem .7rem !important;
     border-radius: 999px !important;
-    border: 1px solid #94a3b855 !important;
-    background: #94a3b822 !important;
-    color: var(--body-text-color) !important;
-    font-size: .82rem !important;
-    font-weight: 600 !important;
-    box-shadow: none !important;
-}}
-#tr-page button.tr-signal:hover {{
-    background: #94a3b844 !important;
-}}
-#tr-page .tr-signal::before,
-#tr-page .tr-signal::after {{
-    content: "";
-    display: inline-block;
-    height: 1.1em;
-    background-color: currentColor;
-    -webkit-mask: var(--tr-icon) no-repeat center / contain;
-    mask: var(--tr-icon) no-repeat center / contain;
-}}
-#tr-page .tr-signal::before {{
-    width: 1.1em;
-    --tr-icon: {_css_mask(_EAR_SVG)};
-}}
-#tr-page .tr-signal-start::after {{
-    width: 1.76em;
-    --tr-icon: {_css_mask(_START_SIGNAL_SVG)};
-}}
-#tr-page .tr-signal-stop::after {{
-    width: 3.96em;
-    --tr-icon: {_css_mask(_STOP_SIGNAL_SVG)};
-}}
+    border: none !important;
+    background: var(--button-primary-background-fill) !important;
+    color: var(--button-primary-text-color) !important;
+    font-size: .85rem !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 6px #0004 !important;
+    cursor: pointer;
+}
+#tr-page button.tr-signal:hover {
+    filter: brightness(1.1);
+}
 """
-# Built from the icons above, so it joins MODAL_CSS only here (the app mounts
-# MODAL_CSS on its own, see app/main.py).
 MODAL_CSS += _TR_SIGNAL_CSS
 # How long the stop button waits between the falling cue and the beep.
 _TR_STOP_SIGNAL_GAP_S = 1.0
@@ -2683,20 +2644,18 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                                    elem_classes="tr-gif-col"):
                         gr.HTML(_button_gif(
                             "start-recording.gif", "Start signal",
-                            "<b>Press</b> to start, wait for the <b>rising beep</b> and for "
+                            "<b>Press</b> to start, <br> wait for the <b>rising beep</b> <br> and for "
                             "the LED to <b>stop blinking</b>."))
                         tr_start_signal_btn = gr.Button(
-                            "Signal:", size="sm",
-                            elem_classes=["tr-signal", "tr-signal-start"])
+                            "▶ Play start sound", size="sm", elem_classes="tr-signal")
                     with gr.Column(scale=1, min_width=200,
                                    elem_classes="tr-gif-col"):
                         gr.HTML(_button_gif(
                             "stop-recording.gif", "Stop signal",
-                            "<b>Press</b> again to stop, and wait for the <b>last</b> beep "
+                            "<b>Press</b> again to stop, <br>and wait for the <b>last</b> beep <br>"
                             "and the LED to be <b>off</b>."))
                         tr_stop_signal_btn = gr.Button(
-                            "Signal:", size="sm",
-                            elem_classes=["tr-signal", "tr-signal-stop"])
+                            "▶ Play stop sounds", size="sm", elem_classes="tr-signal")
                 tr_cameras = gr.HTML("")
                 tr_state = gr.HTML(_tr_pill("idle", "Waiting for the button"))
                 tr_calib_box, _ = _calibration_prompt(None)
@@ -2803,6 +2762,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         batt_beep_tr.change(fn=None, inputs=batt_beep_tr, outputs=None, js=_BATTERY_BEEP_JS)
         test_demo.load(fn=check_battery_warning, outputs=[batt_popup_tr, batt_beep_tr])
         test_demo.load(fn=None, js=_BATTERY_INIT_JS)
+        test_demo.load(fn=None, js=_GIF_CYCLE_JS)
 
     # ══════════════════════════════════════════════════════════════════
     # Page 3 — Episodes
