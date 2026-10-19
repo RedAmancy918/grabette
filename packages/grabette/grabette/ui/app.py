@@ -606,6 +606,7 @@ html.gb-off .toast-wrap {
     flex: 0 0 auto !important;
     width: auto !important;
     min-width: 0 !important;
+    max-width: 100% !important;
 }
 .gb-diag-box .html-container {
     padding: 0 !important;
