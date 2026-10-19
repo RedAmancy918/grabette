@@ -274,6 +274,8 @@ def _archive_response(archive_path: Path, filename: str) -> StreamingResponse:
     return StreamingResponse(chunks(), media_type="application/gzip", headers={
         "Content-Length": str(size),
         "Content-Disposition": f'attachment; filename="{filename}"',
+        # Lets the dashboard tell the archive is ready and the download started.
+        "Set-Cookie": "grabette_dl=1; Path=/",
     })
 
 

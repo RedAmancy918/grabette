@@ -689,6 +689,17 @@ _GIF_CYCLE_JS = """
 """
 
 
+_DOWNLOAD_JS = """
+async (u, msg) => {
+  if (!u) return msg;
+  document.cookie = 'grabette_dl=; Path=/; max-age=0';
+  location.href = u;
+  while (!document.cookie.includes('grabette_dl=')) await new Promise(r => setTimeout(r, 500));
+  return "✅ Archive ready — the download is in your browser's downloads.";
+}
+"""
+
+
 def _gif_ms(filename: str) -> int:
     try:
         with Image.open(Path(__file__).parent / "assets" / filename) as im:
@@ -2056,7 +2067,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         episode_ids = _get_selected_ids(table_data)
         if not episode_ids:
             return "", "Tick the episodes to download"
-        return "/api/episodes/download?" + urlencode({"episode_ids": episode_ids}, doseq=True), ""
+        return ("/api/episodes/download?" + urlencode({"episode_ids": episode_ids}, doseq=True),
+                f"⏳ Preparing {len(episode_ids)} episode(s)… the download starts once the archive is ready.")
 
     def on_delete_episode(table_data, session_id):
         episode_ids = _get_selected_ids(table_data)
@@ -2849,7 +2861,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
 
         dl_btn.click(fn=on_download_episodes, inputs=episodes_table,
                      outputs=[dl_url, episode_msg]).then(
-            fn=None, inputs=dl_url, js="(u) => { if (u) location.href = u; }")
+            fn=None, inputs=[dl_url, episode_msg], outputs=episode_msg, js=_DOWNLOAD_JS)
         check_btn.click(fn=on_check_episode, inputs=episodes_table,
                         outputs=[episode_check, episode_msg])
         del_episode_btn.click(
