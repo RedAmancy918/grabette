@@ -756,6 +756,14 @@ html.gb-off .toast-wrap {
     width: auto !important;
     min-width: 0 !important;
 }
+/* Each Troubleshooting section's Close, on the right; not beside the Close
+   a successful fix brings up. */
+.gb-diag-card .gb-diag-actions .gb-ts-close {
+    margin-left: auto !important;
+}
+.gb-diag-card .gb-diag-actions:has(.gb-diag-done:not(.gb-diag-gone)) .gb-ts-close {
+    display: none !important;
+}
 .gb-diag-card .gb-diag-gone,
 .gb-diag-card .form:has(> .gb-diag-gone),
 .gb-diag-card button.gb-diag-gone {
@@ -867,6 +875,24 @@ html.gb-off .toast-wrap {
 # The navbar sits outside .gradio-container, where MODAL_CSS (scoped to it by
 # gradio) cannot reach, so its rules go in the page <head> instead.
 NAV_HEAD = """<style>
+/* Gradio's Source Sans Pro SemiBold is a stub holding little more than A and
+   B, so every other letter of a 600 weight fell back to the Regular, bolded
+   by the browser: A and B stood out in another font. The same family under
+   a name of its own, with the full Bold shipped alongside (never declared by
+   gradio) for both weights. */
+@font-face {
+    font-family: "Grabette Sans";
+    src: url("/static/fonts/SourceSansPro/SourceSansPro-Regular.woff2") format("woff2");
+    font-weight: 400;
+}
+@font-face {
+    font-family: "Grabette Sans";
+    src: url("/static/fonts/SourceSansPro/SourceSansPro-Bold.woff2") format("woff2");
+    font-weight: 600 700;
+}
+:root, body, .gradio-container {
+    --font: "Grabette Sans", ui-sans-serif, system-ui, sans-serif !important;
+}
 @media (max-width: 560px) {
     /* Four tabs on one line on a phone. */
     nav:has(> a[data-sveltekit-reload]) {
@@ -1224,9 +1250,7 @@ def _diag_report_html(diag: dict | None, error: str = "") -> str:
     if diag is None:
         return ('<div style="opacity:.75;">Checking the I2C buses and the '
                 'sensors…</div>')
-    rows = [_diag_check_row(c.get("status"), c.get("label", ""),
-                            c.get("detail", ""))
-            for c in diag.get("checks", [])]
+    rows = _diag_rows(diag.get("checks", []))
     color = "#10b981" if diag.get("healthy") else "#ef4444"
     verdict = (_diag_faults_html(diag["faults"]) if diag.get("faults") else
                _diag_verdict_html(diag.get("summary", ""), color))
@@ -1240,6 +1264,31 @@ def _diag_report_html(diag: dict | None, error: str = "") -> str:
             'border-radius:8px;background:var(--background-fill-secondary);'
             f'white-space:pre-wrap;">{cmds}</pre></details>')
     return "<div>" + "".join(rows) + verdict + manual + "</div>"
+
+
+# The layers under the sensors (boot configuration, kernel buses, driver,
+# device files) are one row: the sensors' own rows are what people read, and
+# the fix offered still depends on which layer is broken.
+_DIAG_SYSTEM_KEYS = ("boot_config", "kernel_buses", "i2c_dev", "node_")
+
+
+def _diag_rows(checks: list[dict]) -> list[str]:
+    system = [c for c in checks
+              if c.get("key", "").startswith(_DIAG_SYSTEM_KEYS)]
+    rows = []
+    if system:
+        statuses = [c.get("status") for c in system]
+        worst = next((st for st in ("fail", "warn") if st in statuses), "ok")
+        bad = [c for c in system if c.get("status") == worst]
+        detail = ("; ".join(f'{c.get("label")}: {c.get("detail")}' for c in bad)
+                  if worst != "ok" else
+                  "Boot configuration, I2C buses, driver and device files are "
+                  "in place.")
+        rows.append(_diag_check_row(worst, "I2C system setup", detail))
+    rows += [_diag_check_row(c.get("status"), c.get("label", ""),
+                             c.get("detail", ""))
+             for c in checks if c not in system]
+    return rows
 
 
 def _diag_check_row(status: str | None, label: str, detail: str = "") -> str:
@@ -1259,6 +1308,14 @@ def _diag_check_row(status: str | None, label: str, detail: str = "") -> str:
 
 
 def _diag_verdict_html(text: str, color: str) -> str:
+    if color == "#10b981":
+        # A part that works as a filled pill, like the Overview's "Ready to
+        # record": a tinted box would read as the selected tab above it.
+        return (
+            '<div style="margin-top:.8rem;"><span style="display:inline-block;'
+            'padding:.35rem .8rem;border-radius:999px;background:#10b981;'
+            f'color:#fff;font-weight:700;font-size:.88rem;">✓ {html.escape(text)}'
+            '</span></div>')
     return (
         f'<div style="margin-top:.8rem;padding:.6rem .8rem;border-radius:10px;'
         f'background:{color}1a;border:1px solid {color}55;font-weight:600;">'
@@ -2509,16 +2566,17 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         return (_diag_report_html(diag), *_diag_fix_update(diag),
                 f"✓ {res['done']}", box, diag, live, _diag_pw(False))
 
-    def _angle_diag_body(box=None):
+    def _angle_diag_body(box=None, close=False):
         """The report, its fix buttons and its live refresh, built where it is
         called: in the Diagnose popup, and in the Angle sensors section of
         Troubleshooting. `box` is the page's Diagnose button, hidden as soon as
-        a fix brings the sensors back (None: there is none to hide).
+        a fix brings the sensors back (None: there is none to hide). `close`
+        adds a Close button beside the others.
 
         Returns the parts the container wires: `reset` and `run` (the outputs
         of on_diag_again and on_diag_run, which start a walk), the live
-        `timer`, the `done` button and the `password` field (both cleared on
-        close)."""
+        `timer`, the `done` and `close` buttons and the `password` field
+        (cleared on close)."""
         report = gr.HTML(_diag_report_html(None))
         msg = gr.Markdown("")
         # Shown when sudo asks for it (see on_diag_fix).
@@ -2535,6 +2593,9 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 elem_classes=_DIAG_DONE_CLASSES + ["gb-diag-gone"])
             again_btn = gr.Button("Run the diagnostic again",
                                   scale=0, min_width=0)
+            close_btn = (gr.Button("Close", scale=0, min_width=0,
+                                   elem_classes="gb-ts-close")
+                         if close else None)
         fix_state = gr.State(None)
         last_diag = gr.State(None)
         # Live refresh, only while the report is on screen: each tick is a
@@ -2568,7 +2629,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             outputs=fix_outputs)
         return SimpleNamespace(reset=reset_outputs, run=run_outputs,
                                timer=live_timer, done=done_btn,
-                               password=password)
+                               close=close_btn, password=password)
 
     def _angle_diag_prompt():
         """The "Diagnose" button and the popup it opens. Returns the box
@@ -2778,11 +2839,19 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         )
 
     def on_ts_open():
-        """Outputs: the popup, the part to show first (the first one at
-        fault), the refresh timer, the depth message, then ts_sections'."""
+        """The popup at once, its sections read after (on_ts_fill).
+
+        Outputs: the popup, the refresh timer, the depth message, the RGB and
+        depth reports."""
+        checking = '<div style="opacity:.75;">Checking…</div>'
+        return (gr.update(visible=True), gr.Timer(active=True), "",
+                checking, checking)
+
+    def on_ts_fill():
+        """Outputs: the part to show first (the first one at fault), then
+        ts_sections'."""
         *sections, issues = ts_sections()
-        return (gr.update(visible=True), _ts_first_section(issues),
-                gr.Timer(active=True), "", *sections)
+        return (_ts_first_section(issues), *sections)
 
     def on_ts_tick():
         return ts_sections()[:-1]
@@ -2876,6 +2945,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                                 "Reboot the grabette", variant="primary",
                                 scale=0, min_width=0,
                                 elem_classes=["gb-ts-reboot", "gb-diag-gone"])
+                            rgb_close = gr.Button("Close", scale=0, min_width=0,
+                                                  elem_classes="gb-ts-close")
                     with gr.Tab(dict(_TS_SECTIONS)[_TS_DEPTH], id=_TS_DEPTH) as tab_depth:
                         depth_html = gr.HTML(_ts_unknown_html())
                         depth_img = gr.Image(show_label=False, container=False,
@@ -2888,8 +2959,11 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                                 "Start the depth camera", variant="primary",
                                 scale=0, min_width=0,
                                 elem_classes=["gb-ts-start", "gb-diag-gone"])
+                            depth_close = gr.Button(
+                                "Close", scale=0, min_width=0,
+                                elem_classes="gb-ts-close")
                     with gr.Tab(dict(_TS_SECTIONS)[_TS_ANGLE], id=_TS_ANGLE) as tab_angle:
-                        angle = _angle_diag_body()
+                        angle = _angle_diag_body(close=True)
         section = gr.State(_TS_RGB)
         # A textbox, not a State: the JS that clicks the tab reads it, and a
         # State never reaches the browser.
@@ -2907,7 +2981,9 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         def bind_open(btn: gr.Button) -> None:
             btn.click(
                 fn=on_ts_open,
-                outputs=[modal, first, timer, depth_msg, *outputs],
+                outputs=[modal, timer, depth_msg, rgb_html, depth_html],
+                queue=False,
+            ).then(fn=on_ts_fill, outputs=[first, *outputs]
             ).then(fn=None, inputs=first, js=_TS_SHOW_JS)
 
         timer.tick(fn=on_ts_tick, outputs=outputs)
@@ -2927,7 +3003,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             ).then(fn=on_ts_rgb_reboot, inputs=rgb_pw,
                    outputs=[rgb_msg, rgb_reboot, rgb_pw])
         # Closing stops both refreshes and forgets the password.
-        for _btn in (close_btn, angle.done):
+        for _btn in (close_btn, rgb_close, depth_close, angle.close,
+                     angle.done):
             _btn.click(fn=lambda: (gr.update(visible=False),
                                    gr.Timer(active=False),
                                    gr.Timer(active=False),
