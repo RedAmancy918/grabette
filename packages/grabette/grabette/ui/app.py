@@ -10,7 +10,7 @@ import re
 import time
 from functools import partial
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import gradio as gr
 from PIL import Image, ImageSequence
@@ -1544,14 +1544,7 @@ def _status_bar_html(sys_info, oakd_status, cam_status):
 
 
 def create_ui(api_url: str | None = None) -> gr.Blocks:
-    # Route downloaded episode archives to the SD-card-backed data_dir
-    # instead of the OS /tmp (which on Pi OS is a small tmpfs). Same reason
-    # as the SessionManager staging; the SessionManager's startup sweep
-    # cleans this same directory across daemon restarts.
-    client = GrabetteClient(
-        base_url=api_url,
-        download_dir=settings.data_dir / ".downloads",
-    )
+    client = GrabetteClient(base_url=api_url)
 
     # ── Camera ────────────────────────────────────────────────────────
 
@@ -2060,15 +2053,10 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
     # ── Episode actions ───────────────────────────────────────────────
 
     def on_download_episodes(table_data):
-        """Build the archive and reveal the drop it lands in."""
         episode_ids = _get_selected_ids(table_data)
         if not episode_ids:
-            return gr.update(), "Tick the episodes to download"
-        path = client.download_episodes(episode_ids)
-        if path is None:
-            return gr.update(), "⛔ Could not build the archive."
-        return (gr.update(value=path, visible=True),
-                f"{len(episode_ids)} episode(s) ready to download")
+            return "", "Tick the episodes to download"
+        return "/api/episodes/download?" + urlencode({"episode_ids": episode_ids}, doseq=True), ""
 
     def on_delete_episode(table_data, session_id):
         episode_ids = _get_selected_ids(table_data)
@@ -2817,10 +2805,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 episode_msg = gr.Markdown("")
                 # The full verdict for one episode — empty until Check is used.
                 episode_check = gr.HTML("")
-                # Hidden until an archive exists: an empty file drop is a hole
-                # in the page on every state but one.
-                dl_file = gr.File(label="Episode archive", visible=False,
-                                  height=90)
+                dl_url = gr.Textbox(visible=False)
 
                 # Replay panel (hidden until replay starts)
                 with gr.Group(visible=False) as replay_panel:
@@ -2863,7 +2848,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         task_list.change(fn=lambda v: v, inputs=task_list, outputs=selected_task_state)
 
         dl_btn.click(fn=on_download_episodes, inputs=episodes_table,
-                     outputs=[dl_file, episode_msg])
+                     outputs=[dl_url, episode_msg]).then(
+            fn=None, inputs=dl_url, js="(u) => { if (u) location.href = u; }")
         check_btn.click(fn=on_check_episode, inputs=episodes_table,
                         outputs=[episode_check, episode_msg])
         del_episode_btn.click(

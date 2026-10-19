@@ -1354,13 +1354,6 @@ def create_app() -> FastAPI:
             from grabette.ui.app import MODAL_CSS, NAV_HEAD, create_ui
 
             demo = create_ui()
-            # `allowed_paths` whitelists directories from which Gradio's
-            # `/gradio_api/file=<path>` handler will serve files to the
-            # browser. Without this, the multi-GB episode archives written
-            # to data_dir/.downloads/ pass silently through — the file
-            # exists on disk but Gradio refuses to hand it out, and the UI
-            # never surfaces a download link. Default allowed paths cover
-            # only Gradio's own cache and the OS temp dir.
             # `css=` is not optional here: mount_gradio_app overwrites
             # blocks.css with its own argument, so the stylesheet passed to
             # gr.Blocks(css=...) is silently dropped when the UI is mounted
@@ -1369,7 +1362,6 @@ def create_app() -> FastAPI:
             # auth modal — disappears without this.
             app = gr.mount_gradio_app(
                 app, demo, path="/", css=MODAL_CSS, head=NAV_HEAD, footer_links=[],
-                allowed_paths=[str(settings.data_dir / ".downloads")],
             )
             logger.info("Gradio UI mounted at /")
         except ImportError:
