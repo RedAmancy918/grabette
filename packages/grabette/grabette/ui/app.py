@@ -383,7 +383,8 @@ html.gb-off .toast-wrap {
         order: -1;
     }
     /* …but a device that cannot record says so before anything else. */
-    #ov-page #ov-checks {
+    #ov-page #ov-checks,
+    #ov-page #ov-calib {
         order: -3;
     }
 
@@ -394,8 +395,8 @@ html.gb-off .toast-wrap {
         display: block !important;
     }
 }
-/* The "Calibrate my device" button, on the Overview and on Test Recording
-   (see _calibration_prompt). */
+/* "Not calibrated" warning and the button that fixes it, on the Overview and
+   on Test Recording (see _calibration_prompt). */
 .gb-calib-box {
     align-items: center !important;
     justify-content: flex-start !important;
@@ -406,9 +407,17 @@ html.gb-off .toast-wrap {
     flex: 0 0 auto !important;
     width: auto !important;
     min-width: 0 !important;
+    max-width: 100% !important;
 }
 .gb-calib-box .html-container {
     padding: 0 !important;
+}
+/* The warning and its button in one amber callout (Overview). */
+.gb-calib-box.gb-calib-callout {
+    padding: .7rem 1rem !important;
+    border-radius: 12px !important;
+    background: #f59e0b1a !important;
+    border: 1px solid #f59e0b66 !important;
 }
 /* On Test Recording: lined up with the status pill above it, and room for
    the shadow inside the card's overflow:hidden. */
@@ -1108,6 +1117,7 @@ def _tr_pill(kind: str, text: str) -> str:
 # A grabette whose angle sensors were never zeroed refuses to record (see
 # RpiBackend._check_angle_calibration). The fix used to be an SSH session and a
 # script; it is now a button wherever that refusal shows, opening one popup.
+_CALIB_REQUIRED = "Your device is not calibrated"
 _CALIB_BLOCKED = "Cannot record, your device is not calibrated"
 
 # Two photos of the grabette held fully open, front and top, side by side.
@@ -1136,6 +1146,15 @@ def _calibration_figure() -> str:
         '<figcaption style="margin-top:.45rem;text-align:center;'
         'font-size:.82rem;color:var(--body-text-color-subdued);">'
         'Gripper fully open, fingers against their stop</figcaption></figure>'
+    )
+
+
+def _calib_warning_html(text: str) -> str:
+    return (
+        '<div style="display:flex;align-items:center;gap:.6rem;">'
+        '<span style="font-size:1.2rem;line-height:1;">⚠️</span>'
+        '<span style="font-weight:700;font-size:1.02rem;'
+        f'color:var(--body-text-color);">{html.escape(text)}</span></div>'
     )
 
 
@@ -1382,12 +1401,11 @@ def _tips_html(tips: tuple[str, ...]) -> str:
 # endpoints, so a fault shows on the landing page before anyone presses the
 # button. The Troubleshooting popup behind it has one section per part, each
 # with its checks, its verdict and what to do about it.
-_TS_RGB, _TS_DEPTH, _TS_ANGLE, _TS_CALIB = "rgb", "depth", "angle", "calib"
+_TS_RGB, _TS_DEPTH, _TS_ANGLE = "rgb", "depth", "angle"
 _TS_SECTIONS = (
     (_TS_RGB, "RGB camera"),
     (_TS_DEPTH, "RGB-D camera"),
     (_TS_ANGLE, "Angle sensors"),
-    (_TS_CALIB, "Calibration"),
 )
 
 # The RGB camera is found by the Pi's firmware at boot (camera_auto_detect=1
@@ -1440,15 +1458,10 @@ def _ov_checks(cap: dict | None, cam: dict | None, dcam: dict | None,
         issues.append(("warn", _TS_DEPTH, f"{label} starting"))
     if (angle or {}).get("error"):
         issues.append(("fail", _TS_ANGLE, "Gripper angle sensors not working"))
-        if cap.get("needs_calibration"):
-            # Sensors that are down cannot be calibrated: that fault comes
-            # first, and this one waits for it.
-            issues.append(("warn", _TS_CALIB,
-                           "Calibrate the device once the angle sensors work"))
-    elif cap.get("needs_calibration"):
-        issues.append(("fail", _TS_CALIB, "Device not calibrated"))
     blocked = cap.get("blocked_reason")
-    if blocked and not any(level == "fail" for level, _, _ in issues):
+    # The calibration has its own callout (_calibration_prompt).
+    if (blocked and not cap.get("needs_calibration")
+            and not any(level == "fail" for level, _, _ in issues)):
         # Refused, and no part is at fault: the device is busy (an upload…),
         # which clears on its own.
         issues.append(("warn", None, f"Cannot record right now — {blocked}"))
@@ -1463,7 +1476,7 @@ def _ov_checks_html(issues: list[tuple[str, str | None, str]] | None) -> str:
         hint = "The checks run again in a few seconds."
     elif not issues:
         kind, icon, title = "ok", "✓", "Ready to record"
-        hint = "Cameras, angle sensors and calibration all check out."
+        hint = "Cameras and angle sensors all check out."
     elif any(level == "fail" for level, _, _ in issues):
         n = sum(level == "fail" for level, _, _ in issues)
         kind, icon = "fail", "⛔"
@@ -1615,30 +1628,6 @@ def _camera_cable_help_html(gif: str, alt: str, tips: tuple[str, ...]) -> str:
         'style="width:100%;display:block;margin-top:.6rem;'
         'border-radius:10px;background:#fff;" '
         'onerror="this.style.display=\'none\';"></div>')
-
-
-def _ts_calib_html(calib: dict | None, angle: dict | None) -> str:
-    if calib is None:
-        return _ts_unknown_html()
-    if (angle or {}).get("error"):
-        return ("<div>" + _diag_check_row(
-                    "skip", "Calibrated",
-                    "The angle sensors cannot be read, so neither checked nor "
-                    "calibrated.")
-                + _diag_verdict_html("Fix the angle sensors first.", "#f59e0b")
-                + "</div>")
-    if calib.get("needs_calibration"):
-        return ("<div>" + _diag_check_row(
-                    "fail", "Calibrated",
-                    "The angle sensors have no saved zero: the recorded angles "
-                    "would mean nothing.")
-                + _diag_verdict_html(
-                    "Your device is not calibrated: recording is disabled "
-                    "until it is.", "#ef4444")
-                + "</div>")
-    return ("<div>" + _diag_check_row("ok", "Calibrated")
-            + _diag_verdict_html("Your device is calibrated.", "#10b981")
-            + "</div>")
 
 
 def _replay_video_iframe(episode_id: str, stream: str = "raw") -> str:
@@ -2640,15 +2629,20 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 "", _CALIB_VIEWER_IFRAME,
                 gr.update(visible=bool(res.get("needs_calibration"))))
 
-    def _calibration_prompt():
-        """The "Calibrate my device" button and the popup it opens: two
-        steps to calibrate, then a third to check the 3D model follows the
-        gripper. Returns the box holding the button, hidden until the device
-        says it needs calibrating — the caller's poll shows it — and a
-        function that makes any other button open the same popup (the
-        Overview's "Recalibrate").
+    def _calibration_prompt(warning: str | None = None,
+                            elem_id: str | None = None):
+        """The "Calibrate my device" button (right after `warning`, in one
+        callout, when given) and the popup it opens: two steps to calibrate,
+        then a third to check the 3D model follows the gripper. Returns the
+        box holding the button, hidden until the device says it needs
+        calibrating — the caller's poll shows it — and a function that makes
+        any other button open the same popup (the Overview's "Recalibrate").
         """
-        with gr.Row(visible=False, elem_classes="gb-calib-box") as box:
+        classes = ["gb-calib-box"] + (["gb-calib-callout"] if warning else [])
+        with gr.Row(visible=False, elem_id=elem_id,
+                    elem_classes=classes) as box:
+            if warning:
+                gr.HTML(_calib_warning_html(warning))
             open_btn = gr.Button("→ Calibrate my device", variant="primary",
                                  size="lg", scale=0, min_width=0,
                                  elem_classes="gb-calib-open")
@@ -2720,13 +2714,15 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
 
     def poll_ov_checks():
         """The Overview's verdict, its Troubleshooting button (primary while
-        there is something to look at) and its Calibrate button (while that is
-        the fix: not while the sensors it reads are down)."""
-        issues = _ov_checks(*_ts_read())
+        there is something to look at) and the calibration callout (not while
+        the sensors it reads are down)."""
+        cap, cam, dcam, angle = _ts_read()
+        issues = _ov_checks(cap, cam, dcam, angle)
+        must_calib = bool((cap or {}).get("needs_calibration")
+                          and not (angle or {}).get("error"))
         return (_ov_checks_html(issues),
                 gr.update(variant="primary" if issues else "secondary"),
-                gr.update(visible=("fail", _TS_CALIB) in
-                          {(level, sec) for level, sec, _ in issues or ()}))
+                gr.update(visible=must_calib))
 
     def _ts_gone(classes: list[str], shown: bool) -> dict:
         """Shown and hidden with a class, for the same reason as the
@@ -2738,19 +2734,15 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         refresh), the tabs' colours, and the checks themselves.
 
         Outputs: RGB report, image and Reboot button, depth report, image
-        and Start (or Restart) button, calibration report and button, the
-        tabs' style, the issues."""
+        and Start (or Restart) button, the tabs' style, the issues."""
         cap, cam, dcam, angle = _ts_read()
         issues = _ov_checks(cap, cam, dcam, angle)
-        calib = client.get_calibration()
         label = (dcam or {}).get("label") or "depth camera"
         # Not while it is unplugged: the start could only fail.
         can_start = bool(dcam and dcam.get("supported")
                          and not dcam.get("initializing")
                          and dcam.get("connected") is not False)
         verb = "Restart" if (dcam or {}).get("enabled") else "Start"
-        must_calib = bool((calib or {}).get("needs_calibration")
-                          and not (angle or {}).get("error"))
         rgb_frame = get_camera_frame()
         depth_frame = (get_depth_frame() if (dcam or {}).get("initialized")
                        else None)
@@ -2767,8 +2759,6 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             gr.update(value=f"{verb} the {label}", interactive=True,
                       elem_classes=["gb-ts-start"]
                       + ([] if can_start else ["gb-diag-gone"])),
-            _ts_calib_html(calib, angle),
-            gr.update(**_ts_gone(["gb-ts-calib"], must_calib)),
             _ts_tabs_css(issues),
             issues,
         )
@@ -2838,11 +2828,11 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 gr.update(value="Rebooting…", interactive=False),
                 _ts_pw(False, value=""))
 
-    def _troubleshooting(open_btn: gr.Button, calib_bind) -> None:
+    def _troubleshooting(open_btn: gr.Button) -> None:
         """The Troubleshooting popup `open_btn` opens: one section per part of
         the grabette, each with its checks and what to do about them. The
-        angle sensors' section is the Diagnose popup's report, fixes included;
-        the calibration's opens the calibration popup (`calib_bind`)."""
+        angle sensors' section is the Diagnose popup's report, fixes
+        included."""
         with gr.Column(visible=False,
                        elem_classes=["gb-diag-modal", "gb-ts-modal"]) as modal:
             with gr.Column(elem_classes=["gb-diag-card", "gb-ts-card"]):
@@ -2886,22 +2876,15 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                                 elem_classes=["gb-ts-start", "gb-diag-gone"])
                     with gr.Tab(dict(_TS_SECTIONS)[_TS_ANGLE], id=_TS_ANGLE) as tab_angle:
                         angle = _angle_diag_body()
-                    with gr.Tab(dict(_TS_SECTIONS)[_TS_CALIB], id=_TS_CALIB) as tab_calib:
-                        calib_html = gr.HTML(_ts_unknown_html())
-                        with gr.Row(elem_classes="gb-diag-actions"):
-                            calib_btn = gr.Button(
-                                "→ Calibrate my device", variant="primary",
-                                scale=0, min_width=0,
-                                elem_classes=["gb-ts-calib", "gb-diag-gone"])
         section = gr.State(_TS_RGB)
         # A textbox, not a State: the JS that clicks the tab reads it, and a
         # State never reaches the browser.
         first = gr.Textbox(_TS_RGB, visible=False)
         # Cheap reads (statuses and two snapshots), only while it is open.
         timer = gr.Timer(2.0, active=False)
-        tab_list = [tab_rgb, tab_depth, tab_angle, tab_calib]
+        tab_list = [tab_rgb, tab_depth, tab_angle]
         outputs = [rgb_html, rgb_img, rgb_reboot, depth_html, depth_img,
-                   depth_btn, calib_html, calib_btn, tabs_css]
+                   depth_btn, tabs_css]
 
         # The first part at fault is shown by clicking its tab, as a person
         # would: setting the tabs' `selected` from here pins them to it, and
@@ -2927,10 +2910,8 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                     outputs=rgb_reboot, queue=False
             ).then(fn=on_ts_rgb_reboot, inputs=rgb_pw,
                    outputs=[rgb_msg, rgb_reboot, rgb_pw])
-        # The calibration has its own popup: this one makes way for it.
-        calib_bind(calib_btn)
         # Closing stops both refreshes and forgets the password.
-        for _btn in (close_btn, angle.done, calib_btn):
+        for _btn in (close_btn, angle.done):
             _btn.click(fn=lambda: (gr.update(visible=False),
                                    gr.Timer(active=False),
                                    gr.Timer(active=False),
@@ -3718,11 +3699,12 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             with gr.Row(elem_id="ov-checks", elem_classes="gb-checks"):
                 ov_checks_html = gr.HTML(_ov_checks_html(None))
                 with gr.Row(elem_classes="gb-checks-actions"):
-                    ov_calib_box, ov_calib_bind = _calibration_prompt()
                     ov_ts_btn = gr.Button("Troubleshooting", size="lg",
                                           scale=0, min_width=0,
                                           elem_classes="gb-checks-open")
-            _troubleshooting(ov_ts_btn, ov_calib_bind)
+            _troubleshooting(ov_ts_btn)
+            ov_calib_box, ov_calib_bind = _calibration_prompt(_CALIB_REQUIRED,
+                                                              "ov-calib")
 
             # ── Camera | 3D model | Device | Health ───────────────────
             # min_width is what makes this responsive: four columns on a

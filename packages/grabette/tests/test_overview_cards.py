@@ -98,7 +98,7 @@ def test_other_skins_are_untouched():
 # ── Pre-recording checks ──────────────────────────────────────────────
 
 from grabette.ui.app import (  # noqa: E402
-    _ov_checks, _ov_checks_html, _ts_calib_html, _ts_depth_html,
+    _ov_checks, _ov_checks_html, _ts_depth_html,
     _ts_first_section, _ts_rgb_html, _ts_tabs_css,
 )
 
@@ -127,10 +127,8 @@ def test_every_part_at_fault_is_named_with_its_section():
         {"connected": False, "reinitializing": False},
         {**DCAM, "connected": False},
         {**ANGLE, "error": "the gripper angle sensors stopped answering"})
-    # The fault is the angle sensors; the calibration they cannot do waits.
     assert [(lvl, sec) for lvl, sec, _ in issues] == [
-        ("fail", "rgb"), ("fail", "depth"), ("fail", "angle"),
-        ("warn", "calib")]
+        ("fail", "rgb"), ("fail", "depth"), ("fail", "angle")]
     out = _ov_checks_html(issues)
     assert "3 problems to fix before recording" in out
     assert "gb-checks-fail" in out
@@ -156,7 +154,7 @@ def test_a_busy_device_only_waits():
 def test_troubleshooting_opens_on_the_first_part_at_fault():
     assert _ts_first_section([]) == "rgb"
     assert _ts_first_section(None) == "rgb"
-    assert _ts_first_section([("warn", "rgb", ""), ("fail", "calib", "")]) == "calib"
+    assert _ts_first_section([("warn", "rgb", ""), ("fail", "angle", "")]) == "angle"
     assert _ts_first_section([("warn", None, "busy")]) == "rgb"
 
 
@@ -177,12 +175,12 @@ def test_an_unplugged_depth_camera_is_not_ready():
     assert "depth-camera-cable.gif" not in _ts_depth_html(DCAM)
 
 
-def test_calibration_waits_for_the_angle_sensors():
-    out = _ts_calib_html({"needs_calibration": True},
-                         {**ANGLE, "error": "down"})
-    assert "Fix the angle sensors first" in out
-    assert "not calibrated" in _ts_calib_html({"needs_calibration": True},
-                                              ANGLE)
+def test_the_calibration_is_left_to_its_own_callout():
+    # Not calibrated refuses the recording, but has its own callout.
+    issues = _ov_checks({**CAP, "needs_calibration": True,
+                         "blocked_reason": "your device is not calibrated"},
+                        CAM, DCAM, ANGLE)
+    assert issues == []
 
 
 def test_a_missing_rgb_camera_shows_where_its_cable_runs():
