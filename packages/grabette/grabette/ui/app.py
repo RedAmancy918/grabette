@@ -612,46 +612,57 @@ html.gb-off .toast-wrap {
 .gb-diag-card.gb-ts-card {
     max-width: 640px !important;
 }
-/* The tabs as Test Recording's chips (_tr_cameras): a pill with a coloured
-   outline and a coloured mark, both set per tab by _ts_tabs_css. The one on
-   screen is filled with its colour. */
+/* The tabs as a segmented bar, like the Overview's RGB / Depth toggle: one
+   cell per part, all on one line even on a phone, each with its coloured mark
+   (set per tab by _ts_tabs_css). The one on screen is filled with its colour,
+   and its section sits below, clear of the bar. */
 .gb-ts-card .gb-ts-css {
     display: none !important;
 }
-/* A phone gets two rows of pills rather than some of them in a "…" menu.
-   Gradio decides what overflows by adding up the widths of a hidden copy of
-   the tabs: with that copy at no width, every tab stays in the bar, which
-   wraps. */
+/* Gradio decides what overflows into a "…" menu by adding up the widths of a
+   hidden copy of the tabs: with that copy at no width, every tab stays in the
+   bar. */
 .gb-ts-card .tab-container.visually-hidden button {
     font-size: 0 !important;
     padding: 0 !important;
     border: 0 !important;
     min-width: 0 !important;
 }
-.gb-ts-card .tab-container {
-    flex-wrap: wrap !important;
+.gb-ts-card .tab-container:not(.visually-hidden) {
+    display: grid !important;
+    grid-auto-columns: 1fr !important;
+    grid-auto-flow: column !important;
     height: auto !important;
-    gap: .4rem !important;
+    gap: .25rem !important;
+    margin: .9rem 0 0 !important;
+    padding: .25rem !important;
+    border: 1px solid var(--border-color-primary) !important;
+    border-radius: 12px !important;
+}
+.gb-ts-card .tabitem {
+    padding: 1.1rem 0 0 !important;
     border: none !important;
-    padding: .3rem 0 !important;
 }
 /* Grey "?" until _ts_tabs_css says better: fallbacks, not defaults set here,
    since gradio scopes these rules and they would outrank its. */
 .gb-ts-card [role=tab] {
-    display: inline-flex !important;
-    align-items: baseline !important;
-    gap: .4rem !important;
-    padding: .3rem .7rem !important;
-    border-radius: 999px !important;
-    border: 1px solid color-mix(in srgb, var(--gb-tab-c, #94a3b8) 33%, transparent) !important;
+    display: block !important;
+    min-width: 0 !important;
+    padding: .45rem .4rem !important;
+    border-radius: 9px !important;
+    border: 1px solid transparent !important;
     background: transparent !important;
     color: var(--body-text-color) !important;
     font-size: .82rem !important;
     font-weight: 600 !important;
-    opacity: .75;
+    line-height: 1.2 !important;
+    white-space: normal !important;
+    text-align: center !important;
+    opacity: .7;
 }
 .gb-ts-card [role=tab]::before {
     content: var(--gb-tab-m, "?");
+    margin-right: .35rem;
     color: var(--gb-tab-c, #94a3b8);
     font-weight: 700;
 }
@@ -664,7 +675,7 @@ html.gb-off .toast-wrap {
 .gb-ts-card [role=tab][aria-selected=true] {
     opacity: 1;
     border-color: var(--gb-tab-c, #94a3b8) !important;
-    background: color-mix(in srgb, var(--gb-tab-c, #94a3b8) 12%, transparent) !important;
+    background: color-mix(in srgb, var(--gb-tab-c, #94a3b8) 14%, transparent) !important;
 }
 .gb-ts-card img {
     object-fit: contain !important;
