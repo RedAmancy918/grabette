@@ -3561,8 +3561,28 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             return mode, ""
         result = client.set_oakd(True)
         if "error" in result:
-            return mode, f"⛔ {result['error']}"
-        return mode, f"*Starting {name}…*"
+            # Still starting after the client's timeout is not a failure.
+            note = ov_depth_note(mode)
+            return mode, (note if isinstance(note, str)
+                          else f"⛔ {result['error']}")
+        return mode, ("" if result.get("initialized")
+                      else f"⛔ {name} did not start.")
+
+    def ov_depth_note(mode):
+        """The note under the toggle, following the depth camera's state."""
+        if mode != _OV_DEPTH:
+            return gr.update()
+        status = client.get_oakd_status()
+        if status is None or not status.get("supported"):
+            return gr.update()
+        name = status.get("label") or "Depth camera"
+        if status.get("error"):
+            return f"⛔ {status['error']}"
+        if status.get("initialized"):
+            return ""
+        if status.get("initializing"):
+            return f"*Starting {name}…*"
+        return gr.update()
 
     # ── Speaker volume ────────────────────────────────────────────────
 
@@ -3770,12 +3790,18 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
                 gr.HTML(_OV_RULE, elem_classes="ov-rule-bottom")
 
         ov_mode_state = gr.State(_OV_RGB)
-        ov_cam_mode.change(fn=on_ov_mode, inputs=ov_cam_mode,
-                           outputs=[ov_mode_state, ov_cam_msg])
+        # State first: on_ov_mode blocks while the depth camera starts.
+        ov_cam_mode.change(fn=lambda mode: mode, inputs=ov_cam_mode,
+                           outputs=ov_mode_state, queue=False).then(
+            fn=on_ov_mode, inputs=ov_cam_mode,
+            outputs=[ov_mode_state, ov_cam_msg])
 
         cn_camera_timer = gr.Timer(0.2)
         cn_camera_timer.tick(fn=ov_frame, inputs=ov_mode_state,
                              outputs=ov_camera_img)
+        ov_depth_note_timer = gr.Timer(1.0)
+        ov_depth_note_timer.tick(fn=ov_depth_note, inputs=ov_mode_state,
+                                 outputs=ov_cam_msg, show_progress="hidden")
 
         ov_volume.release(fn=on_volume_release, inputs=ov_volume,
                           outputs=[ov_mute_btn, ov_sound_note])
