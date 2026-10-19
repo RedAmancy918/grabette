@@ -2738,16 +2738,17 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         refresh), the tabs' colours, and the checks themselves.
 
         Outputs: RGB report, image and Reboot button, depth report, image
-        and Start button, calibration report and button, the tabs' style, the
-        issues."""
+        and Start (or Restart) button, calibration report and button, the
+        tabs' style, the issues."""
         cap, cam, dcam, angle = _ts_read()
         issues = _ov_checks(cap, cam, dcam, angle)
         calib = client.get_calibration()
         label = (dcam or {}).get("label") or "depth camera"
         # Not while it is unplugged: the start could only fail.
         can_start = bool(dcam and dcam.get("supported")
-                         and not dcam.get("enabled")
+                         and not dcam.get("initializing")
                          and dcam.get("connected") is not False)
+        verb = "Restart" if (dcam or {}).get("enabled") else "Start"
         must_calib = bool((calib or {}).get("needs_calibration")
                           and not (angle or {}).get("error"))
         rgb_frame = get_camera_frame()
@@ -2763,7 +2764,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             _ts_depth_html(dcam),
             gr.update(value=depth_frame,
                       **_ts_gone(["gb-ts-img"], depth_frame is not None)),
-            gr.update(value=f"Start the {label}", interactive=True,
+            gr.update(value=f"{verb} the {label}", interactive=True,
                       elem_classes=["gb-ts-start"]
                       + ([] if can_start else ["gb-diag-gone"])),
             _ts_calib_html(calib, angle),
@@ -2802,8 +2803,16 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         return on_diag_run()
 
     def on_ts_depth_start():
-        res = client.set_oakd(True)
-        msg = f"⛔ {res['error']}" if "error" in res else ""
+        """Start the depth camera, or restart it when it is on."""
+        res = {}
+        if (client.get_oakd_status() or {}).get("enabled"):
+            res = client.set_oakd(False)
+        if not res.get("error"):
+            res = client.set_oakd(True)
+        # Still starting after the client's timeout is not a failure.
+        failed = (res.get("error")
+                  and not (client.get_oakd_status() or {}).get("initializing"))
+        msg = f"⛔ {res['error']}" if failed else ""
         return (msg, *ts_sections()[:-1])
 
     def _ts_pw(shown: bool, **kw):
@@ -2908,7 +2917,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
             ).then(fn=on_ts_angle_reset, inputs=section, outputs=angle.reset,
                    queue=False
             ).then(fn=on_ts_angle_run, inputs=section, outputs=angle.run)
-        depth_btn.click(fn=lambda: gr.update(value="Starting…",
+        depth_btn.click(fn=lambda: gr.update(value="Working…",
                                              interactive=False),
                         outputs=depth_btn, queue=False
         ).then(fn=on_ts_depth_start, outputs=[depth_msg, *outputs])
@@ -3164,7 +3173,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         s = client.get_oakd_status() or {}
         enabled = bool(s.get("enabled"))
         result = client.set_oakd(not enabled)
-        if "error" in result:
+        if result.get("error"):
             logger.warning("Depth camera toggle failed: %s", result["error"])
         return _oakd_button_update()
 
@@ -3560,7 +3569,7 @@ def create_ui(api_url: str | None = None) -> gr.Blocks:
         if status.get("enabled"):
             return mode, ""
         result = client.set_oakd(True)
-        if "error" in result:
+        if result.get("error"):
             # Still starting after the client's timeout is not a failure.
             note = ov_depth_note(mode)
             return mode, (note if isinstance(note, str)
