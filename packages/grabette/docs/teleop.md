@@ -55,13 +55,13 @@ share representation with what the bridge sends live.
 
 - Grabette V2 powered on, `grabette.service` running on the Pi.
 - A robot or sim exposing the `openarm` gRPC interfaces — see
-  [openarm_gripette_simu](https://github.com/pollen-robotics/grabette-policy/tree/develop/integrations/openarm/openarm_gripette_simu) (in the grabette-policy repo) for the proto.
+  [openarm_gripette_simu](https://github.com/pollen-robotics/grabette-policy/tree/develop/robots/openarm/openarm_gripette_simu) (in the grabette-policy repo) for the proto.
 - Network reachability: the workstation running the bridge must be able
   to reach both the Pi and the robot's gRPC endpoints.
 - The bridge, on the workstation: it lives in the
   [grabette-policy](https://github.com/pollen-robotics/grabette-policy) repo, at
-  `integrations/openarm/openarm_gripette_simu/examples/teleop_bridge.py`. Install its
-  dependencies with `uv sync --extra teleop` from `integrations/openarm/openarm_gripette_simu`;
+  `robots/openarm/openarm_gripette_simu/examples/teleop_bridge.py`. Install its
+  dependencies with `uv sync --extra teleop` from `robots/openarm/openarm_gripette_simu`;
   the bridge commands below run from that directory.
 
 ### Operator workflow
