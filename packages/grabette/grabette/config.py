@@ -78,7 +78,9 @@ class Settings(BaseSettings):
     # via depthai; "gemini305" is the Orbbec Gemini 305 via pyorbbecsdk2, kept as
     # a second source so the rig is not single-sourced on Luxonis. This selects
     # the model only — enable_oakd still controls whether it is powered at all.
-    depth_camera: Literal["oakd", "gemini305"] = "gemini305"
+    # "stereo_uvc" is a UVC side-by-side stereo camera (SKL-4689 or AR0144)
+    # recording raw MJPG, with depth computed offline.
+    depth_camera: Literal["oakd", "gemini305", "stereo_uvc"] = "gemini305"
 
     # Gemini 305 IR exposure. 0 = leave the camera's auto-exposure alone.
     # AE favours low noise over short integration (~15.6 ms with gain 16 in a
@@ -89,6 +91,13 @@ class Settings(BaseSettings):
     orbbec_ir_gain: int = 0
 
     orbbec_rotate_180: bool = True
+
+    # UVC stereo camera (depth_camera="stereo_uvc"). Profile and mode select
+    # the calibration file in hardware/stereo_calib/. Exposure is in 100 us
+    # units and must stay under the 33 ms frame period or the fps drops.
+    stereo_profile: Literal["skl2mp220", "ar0144"] = "skl2mp220"
+    stereo_mode: str = "3040x1080"
+    stereo_exposure: int = 300
 
     # UI
     ui_enabled: bool = True

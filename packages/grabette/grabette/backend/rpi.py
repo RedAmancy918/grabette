@@ -99,6 +99,8 @@ class RpiBackend(Backend):
         oakd_keepalive_s: float = 30.0, depth_camera: str = "oakd",
         orbbec_ir_exposure_us: int = 0, orbbec_ir_gain: int = 0,
         orbbec_rotate_180: bool = False,
+        stereo_profile: str = "skl2mp220", stereo_mode: str = "3040x1080",
+        stereo_exposure: int = 300,
     ) -> None:
         super().__init__()
         self._running = False
@@ -131,6 +133,9 @@ class RpiBackend(Backend):
         self._orbbec_ir_exposure_us = orbbec_ir_exposure_us
         self._orbbec_ir_gain = orbbec_ir_gain
         self._orbbec_rotate_180 = orbbec_rotate_180
+        self._stereo_profile = stereo_profile
+        self._stereo_mode = stereo_mode
+        self._stereo_exposure = stereo_exposure
 
         self._sync = None
         self._camera = None
@@ -262,6 +267,14 @@ class RpiBackend(Backend):
                     ir_exposure_us=self._orbbec_ir_exposure_us,
                     ir_gain=self._orbbec_ir_gain,
                     rotate_180=self._orbbec_rotate_180,
+                )
+            elif self._depth_camera == "stereo_uvc":
+                from grabette.hardware.stereo_uvc import StereoUvcCapture
+                self._oakd = StereoUvcCapture(
+                    self._sync,
+                    profile=self._stereo_profile,
+                    mode=self._stereo_mode,
+                    exposure=self._stereo_exposure,
                 )
             else:
                 self._oakd = OakdCapture(self._sync)
