@@ -5,7 +5,7 @@ The UVC stereo camera has no on-board depth, so the Pi only records
 dcam_stereo.mjpeg + timestamps + calibration (see grabette/hardware/stereo_uvc.py).
 This computes what the Gemini 305 would have produced on the device:
 
-    dcam_left.mp4               H.264, rectified left eye, grayscale
+    dcam_left.mp4               H.264, rectified left eye, colour
     dcam_depth.mkv              uint16 mm, lossless FFV1, aligned to dcam_left
     dcam_left_timestamps.json   copied from dcam_stereo_timestamps.json
     dcam_depth_timestamps.json  (one depth frame per stereo frame)
@@ -15,7 +15,13 @@ after which convert_episode_to_oak.py / run_oak_slam.py run unchanged.
 
 Rectification and SGBM come from stereokit, with the block size derived from
 the eye width and the calibration's measured disparity_offset, as in
-`stereokit view`. Run it from stereokit's environment:
+`stereokit view`. Depth is computed at full resolution, where the calibration
+was validated, then everything is written at --scale (default 0.5). On the
+first SKL 3040x1080 episode, offline_vslam tracked 55.8% of frames at
+1520x1080 and 95.2% at 760x540: its default odometry parameters do not cope
+with the doubled motion blur, in pixels, of the full-resolution image.
+
+Run it from stereokit's environment:
 
     uv run --project /path/to/stereokit python scripts/pipeline/stereo_to_dcam.py -i EPISODE_DIR
 """
@@ -42,7 +48,7 @@ def spawn_ffmpeg(args: list[str], size: tuple[int, int], pix_fmt: str, fps: floa
     return subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
 
-def convert(ep_dir: Path, max_depth: float) -> None:
+def convert(ep_dir: Path, max_depth: float, scale: float) -> None:
     calib = calibrate.load(ep_dir / "dcam_calib_stereo.json")
     swap = json.loads((ep_dir / "dcam_calib.json").read_text())["swap_eyes"]
     samples = json.loads((ep_dir / "dcam_stereo_timestamps.json").read_text())["samples"]
@@ -51,14 +57,16 @@ def convert(ep_dir: Path, max_depth: float) -> None:
     est = DepthEstimator(fx=rect.fx, baseline_m=rect.baseline_m,
                          image_width=rect.eye_size[0], max_depth=max_depth,
                          disparity_offset=calibrate.disparity_offset(calib))
-    w, h = rect.eye_size
+    # Output size. Even dimensions, as yuv420p requires.
+    w = int(round(rect.eye_size[0] * scale / 2)) * 2
+    h = int(round(rect.eye_size[1] * scale / 2)) * 2
     # Nominal rate for the containers only; real timing is in the sidecars.
     span_s = (samples[-1]["host_ms"] - samples[0]["host_ms"]) / 1000.0
     fps = (len(samples) - 1) / span_s if span_s > 0 else 30.0
 
     left_enc = spawn_ffmpeg(["-c:v", "libx264", "-preset", "medium", "-crf", "18",
                              "-pix_fmt", "yuv420p"],
-                            (w, h), "gray", fps, ep_dir / "dcam_left.mp4")
+                            (w, h), "bgr24", fps, ep_dir / "dcam_left.mp4")
     depth_enc = spawn_ffmpeg(["-c:v", "ffv1", "-level", "3"],
                              (w, h), "gray16le", fps, ep_dir / "dcam_depth.mkv")
 
@@ -77,8 +85,13 @@ def convert(ep_dir: Path, max_depth: float) -> None:
         _, depth_m = est.compute(lr, rr)
         # NaN (invalid) -> 0, the only invalid marker downstream accepts.
         depth_mm = np.nan_to_num(depth_m * 1000.0, nan=0.0).astype(np.uint16)
+        if (w, h) != rect.eye_size:
+            lr = cv2.resize(lr, (w, h), interpolation=cv2.INTER_AREA)
+            # NEAREST: averaging depth would invent values across edges and
+            # blend valid pixels with the 0 invalid marker.
+            depth_mm = cv2.resize(depth_mm, (w, h), interpolation=cv2.INTER_NEAREST)
 
-        left_enc.stdin.write(cv2.cvtColor(lr, cv2.COLOR_BGR2GRAY).tobytes())
+        left_enc.stdin.write(lr.tobytes())
         depth_enc.stdin.write(depth_mm.tobytes())
         valid += float((depth_mm > 0).mean())
         n += 1
@@ -96,11 +109,14 @@ def convert(ep_dir: Path, max_depth: float) -> None:
 
     for name in ("dcam_left_timestamps.json", "dcam_depth_timestamps.json"):
         (ep_dir / name).write_text(json.dumps({"samples": samples}))
+    # Rectified intrinsics rescaled to the output size (pixel-centre convention).
     K = rect.K
+    sx, sy = w / rect.eye_size[0], h / rect.eye_size[1]
     (ep_dir / "dcam_calib_offline.json").write_text(json.dumps({
         "width": w, "height": h,
-        "fx": float(K[0, 0]), "fy": float(K[1, 1]),
-        "cx": float(K[0, 2]), "cy": float(K[1, 2]),
+        "fx": float(K[0, 0]) * sx, "fy": float(K[1, 1]) * sy,
+        "cx": (float(K[0, 2]) + 0.5) * sx - 0.5,
+        "cy": (float(K[1, 2]) + 0.5) * sy - 0.5,
         "baseline": rect.baseline_m,
     }, indent=2))
     print(f"  {n} frames in {time.monotonic() - t0:.0f} s, "
@@ -115,12 +131,14 @@ def main():
                     help="Episode directory (repeatable for batch)")
     ap.add_argument("--max-depth", type=float, default=4.0,
                     help="Depth beyond this (m) is marked invalid (default 4.0)")
+    ap.add_argument("--scale", type=float, default=0.5,
+                    help="Output size relative to the eye size (default 0.5)")
     args = ap.parse_args()
     for d in args.input_dir:
         ep_dir = d.expanduser().absolute()
         print(f"Converting {ep_dir.name}...")
         try:
-            convert(ep_dir, args.max_depth)
+            convert(ep_dir, args.max_depth, args.scale)
         except Exception as e:
             print(f"  FAILED: {e}", file=sys.stderr)
 
