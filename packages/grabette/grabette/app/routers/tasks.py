@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import shutil
+import os
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from grabette.app.dependencies import get_backend
 from grabette.backend.base import Backend
 from grabette.capture_scheduler import get_capture_scheduler
-from grabette.config import settings
 from grabette.episode_check import missing_files
 from grabette.fleet_sync import notify_group_stop, request_group_start
 from grabette.hardware.episode_files import DCAM_LEFT, resolve
@@ -260,6 +260,35 @@ async def stop_capture(
     return status
 
 
+def _archive_response(archive_path: Path, filename: str) -> StreamingResponse:
+    """Streams the archive from an open handle and unlinks it right away, so
+    it is gone even if the download is cancelled."""
+    f = archive_path.open("rb")
+    size = os.fstat(f.fileno()).st_size
+    archive_path.unlink()
+
+    def chunks():
+        with f:
+            yield from iter(lambda: f.read(1 << 20), b"")
+
+    return StreamingResponse(chunks(), media_type="application/gzip", headers={
+        "Content-Length": str(size),
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        # Lets the dashboard tell the archive is ready and the download started.
+        "Set-Cookie": "grabette_dl=1; Path=/",
+    })
+
+
+@router.get("/api/episodes/download")
+def download_episodes(episode_ids: list[str] = Query(), tm: TaskManager = Depends(get_task_manager)):
+    try:
+        archive_path = tm.create_episodes_zip(episode_ids)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    filename = f"episodes_{episode_ids[0]}.tar.gz" if len(episode_ids) == 1 else "episodes.tar.gz"
+    return _archive_response(archive_path, filename)
+
+
 @router.get("/api/episodes/{episode_id}")
 def get_episode(episode_id: str, tm: TaskManager = Depends(get_task_manager)):
     try:
@@ -294,24 +323,7 @@ def download_episode(episode_id: str, tm: TaskManager = Depends(get_task_manager
         archive_path = tm.create_episode_archive(episode_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Episode not found")
-    return FileResponse(
-        archive_path,
-        media_type="application/gzip",
-        filename=f"{episode_id}.tar.gz",
-    )
-
-
-class DownloadEpisodesRequest(BaseModel):
-    episode_ids: list[str]
-
-
-@router.post("/api/episodes/download")
-def download_episodes(req: DownloadEpisodesRequest, tm: TaskManager = Depends(get_task_manager)):
-    if not req.episode_ids:
-        raise HTTPException(status_code=400, detail="No episode IDs provided")
-    archive_path = tm.create_episodes_zip(req.episode_ids)
-    filename = f"episodes_{req.episode_ids[0]}.tar.gz" if len(req.episode_ids) == 1 else "episodes.tar.gz"
-    return FileResponse(archive_path, media_type="application/gzip", filename=filename)
+    return _archive_response(archive_path, f"{episode_id}.tar.gz")
 
 
 @router.get("/api/episodes/{episode_id}/video")
@@ -346,8 +358,6 @@ def delete_all_episodes(
         count = tm.delete_all_episodes()
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    # Archives built for the dashboard's Download button are copies of episodes.
-    shutil.rmtree(settings.data_dir / ".downloads", ignore_errors=True)
     return {"deleted": count}
 
 
