@@ -10,10 +10,10 @@ episode (`session.py` for the dashboard, `replay.py` for playback) go through
 `resolve()`, because episodes recorded before the rename still use `oakd_*` and
 are not being rewritten.
 
-Deliberately duplicated from `grabette_postprocess.episode_files`: the two
-packages are independent distributions (neither depends on the other, and the
-SLAM Space vendors only postprocess), so a shared module would mean a new
-dependency edge for one table of twelve strings. Keep the two in step.
+Deliberately duplicated from `grabette_postprocess.episode_files` in the
+grabette-slam repo: the two packages live in separate repositories and neither
+depends on the other, so a shared module would mean a new cross-repo dependency
+for one table of twelve strings. Keep the two in step.
 """
 
 from __future__ import annotations
