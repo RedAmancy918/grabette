@@ -100,7 +100,7 @@ def _process_result(status_payload, extra_args=None, posted=None):
 
     class _Session:
         def get(self, url, **kw):
-            return _Resp(status_payload)
+            return _Resp(status_payload() if callable(status_payload) else status_payload)
 
         def post(self, url, **kw):
             if posted is not None:
@@ -128,6 +128,54 @@ def _process_result(status_payload, extra_args=None, posted=None):
     finally:
         aiohttp.ClientSession, asyncio.sleep = orig_session, orig_sleep
         main._daemon = orig_daemon
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+def test_a_slow_but_progressing_conversion_is_never_abandoned(monkeypatch):
+    monkeypatch.setattr(main, "_wake_space", _awake)
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: "tok")
+    clock = _Clock()
+    monkeypatch.setattr(main, "time", clock)
+    polls = {"n": 0}
+
+    def status():
+        polls["n"] += 1
+        clock.now += 600.0
+        if polls["n"] < 30:
+            return {"status": "running", "log": "\n".join(["step"] * polls["n"])}
+        return {"status": "done", "result": "https://hf.co/datasets/u/ds"}
+
+    res = _process_result(status)
+
+    assert clock.now >= 5 * 3600.0
+    assert res["status"] == "ok"
+
+
+def test_a_silent_conversion_is_abandoned_instead_of_waiting_forever(monkeypatch):
+    monkeypatch.setattr(main, "_wake_space", _awake)
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: "tok")
+    clock = _Clock()
+    monkeypatch.setattr(main, "time", clock)
+
+    def status():
+        clock.now += 60.0
+        return {"status": "running", "log": "loading episode 3"}
+
+    res = _process_result(status)
+
+    assert res["status"] == "error"
+    assert "stalled" in res["message"]
+    assert clock.now < main._SPACE_STALL_TIMEOUT_S + 120.0
 
 
 def test_done_without_a_dataset_is_an_error_not_a_success(monkeypatch):
