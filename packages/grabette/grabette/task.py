@@ -221,6 +221,8 @@ class TaskManager:
     # ── Episode operations ────────────────────────────────────────────
 
     def episode_dir(self, episode_id: str) -> Path:
+        if episode_id in ("", ".", "..") or Path(episode_id).name != episode_id:
+            raise FileNotFoundError(f"Invalid episode id {episode_id!r}")
         return self.episodes_dir / episode_id
 
     def create_episode(
@@ -456,22 +458,19 @@ class TaskManager:
         return n
 
     def create_episode_archive(self, episode_id: str) -> Path:
-        ep_dir = self.episode_dir(episode_id)
-        if not ep_dir.exists():
+        if not self.episode_dir(episode_id).exists():
             raise FileNotFoundError(f"Episode {episode_id} not found")
-        archive_path = Path(tempfile.mktemp(suffix=".tar.gz"))
-        with tarfile.open(archive_path, "w:gz") as tar:
-            tar.add(ep_dir, arcname=episode_id)
-        return archive_path
+        return self.create_episodes_zip([episode_id])
 
+    # On the SD card: /tmp is a small tmpfs on Pi OS.
     def create_episodes_zip(self, episode_ids: list[str]) -> Path:
-        archive_path = Path(tempfile.mktemp(suffix=".tar.gz"))
-        with tarfile.open(archive_path, "w:gz") as tar:
-            for episode_id in episode_ids:
-                ep_dir = self.episode_dir(episode_id)
+        dirs = [self.episode_dir(e) for e in episode_ids]
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", dir=self.data_dir, delete=False) as f, \
+                tarfile.open(fileobj=f, mode="w:gz") as tar:
+            for ep_dir in dirs:
                 if ep_dir.exists():
-                    tar.add(ep_dir, arcname=episode_id)
-        return archive_path
+                    tar.add(ep_dir, arcname=ep_dir.name)
+        return Path(f.name)
 
     def _get_episode_info(self, episode_id: str) -> EpisodeInfo:
         ep_dir = self.episode_dir(episode_id)
