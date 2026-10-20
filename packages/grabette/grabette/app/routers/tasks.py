@@ -157,7 +157,7 @@ async def start_capture(
     if backend.is_capturing:
         raise HTTPException(status_code=409, detail="Already capturing")
     scheduler = get_capture_scheduler()
-    if scheduler.is_scheduled():
+    if scheduler.is_pending():
         raise HTTPException(status_code=409, detail="A start is already scheduled")
     # Hardware fault or dataset work in progress. Checked BEFORE the episode is
     # created so a refusal leaves no half-made episode to discard, and reported
@@ -180,6 +180,10 @@ async def start_capture(
         raise HTTPException(status_code=409,
                             detail={"message": "group start refused (a peer may be offline)",
                                     "detail": sync.get("detail")})
+    if status == "waiting_camera":
+        # start_capture comes later from the fleet.
+        scheduler.mark_waiting_for_fleet()
+        return {"status": "waiting_camera"}
     target = None
     if status == "scheduled":
         gname = sync.get("task_name") or ""
@@ -235,6 +239,9 @@ async def stop_capture(
         raise HTTPException(status_code=409, detail=str(e))
     if outcome == "cancelled":
         tm.discard_pending_episode()
+        return {"status": "cancelled"}
+    if outcome == "cancelled_wait":
+        await notify_group_stop(should_abort=scheduler.is_pending)
         return {"status": "cancelled"}
     if not backend.is_capturing:
         raise HTTPException(status_code=409, detail="Not capturing")
