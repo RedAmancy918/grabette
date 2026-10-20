@@ -512,6 +512,21 @@ _DATASET_WORK_KINDS = {"upload_episodes": "uploading", "process_dataset": "proce
 # flag so a lost entry can never wedge the device as permanently busy.
 _active_dataset_work: dict[str, str] = {}
 
+# command id -> (episodes uploaded, episodes to upload), for the upload running
+# now. The command reports only once it is over, which for a big task is half an
+# hour of the fleet knowing nothing but "uploading" — this is what lets it show
+# how far along it is, and estimate how long is left, while it runs.
+_upload_progress: dict[str, tuple[int, int]] = {}
+
+
+def _dataset_progress() -> str:
+    """The running upload's progress for the heartbeat, "<command id>:<done>/<total>",
+    or "" when nothing is uploading. The command id says WHICH upload the count is
+    for, so a fleet can never credit it to a build it has since moved on from."""
+    for cmd_id, (done, total) in list(_upload_progress.items())[:1]:
+        return f"{cmd_id}:{done}/{total}"
+    return ""
+
 
 async def _handle_relay_command(cmd: dict) -> dict:
     """Relay entry point: record what this device is busy with, then dispatch.
@@ -529,6 +544,7 @@ async def _handle_relay_command(cmd: dict) -> dict:
         return await _dispatch_relay_command(cmd)
     finally:
         _active_dataset_work.pop(cmd_id, None)
+        _upload_progress.pop(cmd_id, None)
 
 
 def _device_activity() -> str:
@@ -776,7 +792,8 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
                                 f"episode(s) can be converted"),
                     "uploaded": uploaded, "missing": missing, "incomplete": incomplete}
 
-        for eid, ep_dir in present:
+        _upload_progress[cmd_id] = (0, len(present))
+        for i, (eid, ep_dir) in enumerate(present, start=1):
             # Cancellation checkpoint, once per episode. Checked BEFORE the first
             # upload too: the cancel may have landed while this command was still
             # queued behind another one (the relay's worker is serial), in which
@@ -788,10 +805,13 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
             if cancels.is_cancelled(cmd_id):
                 return {"status": "cancelled", "role": role, "uploaded": uploaded,
                         "missing": missing, "incomplete": incomplete}
+            logger.info("Uploading episode %d/%d (%s) to %s as %s",
+                        i, len(present), eid, raw_repo, role)
             try:
                 await _upload_one_episode(hf, ep_dir, raw_repo, f"{eid}/{role}", private,
                                           lambda: cancels.is_cancelled(cmd_id))
                 uploaded.append(eid)
+                _upload_progress[cmd_id] = (len(uploaded), len(present))
             except _CommandCancelled:
                 return {"status": "cancelled", "role": role, "uploaded": uploaded,
                         "missing": missing, "incomplete": incomplete}
@@ -1245,6 +1265,7 @@ async def lifespan(app: FastAPI):
             unassigned_provider=get_task_manager().report_unassigned,
             tasks_rev_provider=get_task_manager().revision,  # re-report when tasks change
             activity_provider=_device_activity,  # device state, reported via heartbeat
+            progress_provider=_dataset_progress,  # how far the running upload is
             # Hardware faults (no OAK-D calibration, no angle sensors) — the
             # device refuses to record in these states, and an operator who can
             # only find that out by walking up to the grabette and reading its

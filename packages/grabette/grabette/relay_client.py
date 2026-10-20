@@ -139,6 +139,10 @@ class RelayClient:
         # Optional callable returning whether the depth camera is warm, or None
         # when unknown. Lets the fleet pick a group start's lead.
         depth_warm_provider: Optional[Callable[[], Optional[bool]]] = None,
+        # Optional callable returning how far the running dataset upload is, as
+        # "<command id>:<done>/<total>" ("" = none). Lets the fleet draw a real
+        # progress bar and a time estimate instead of waiting on the result.
+        progress_provider: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token_provider = token_provider
@@ -154,6 +158,7 @@ class RelayClient:
         self.activity_provider = activity_provider
         self.fault_provider = fault_provider
         self.depth_warm_provider = depth_warm_provider
+        self.progress_provider = progress_provider
         self._last_reported_rev: Optional[int] = None  # last task revision sent to the fleet
         # Token of the last register: on an account switch the fleet may hold a
         # stale entry for us that polls fine, so a new token forces a re-register.
@@ -337,6 +342,13 @@ class RelayClient:
                     # Sent on every beat, empty included: lets the fleet spot a
                     # command this device forgot (fast restart, lost result).
                     params["running"] = ",".join(sorted(inflight))
+                    if self.progress_provider is not None:  # in-memory, safe inline
+                        try:
+                            prog = self.progress_provider()
+                        except Exception:
+                            prog = None
+                        if prog:
+                            params["progress"] = prog
                     warm = self._read_depth_warm()
                     self._sent_depth_warm = warm
                     if warm is not None:

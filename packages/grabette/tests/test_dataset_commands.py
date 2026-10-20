@@ -602,6 +602,28 @@ def test_a_complete_batch_uploads_untouched(tmp_path, monkeypatch):
     assert res["incomplete"] == [] and "message" not in res
 
 
+def test_the_heartbeat_reports_how_far_the_upload_is(tmp_path, monkeypatch):
+    # The command only reports once it is over; until then this is all the fleet
+    # has to draw a progress bar and estimate the time left with.
+    _make_episode(tmp_path, "ep1")
+    _make_episode(tmp_path, "ep2")
+    _make_episode(tmp_path, "ep_bad", complete=False)
+    seen = []
+
+    class _Watching(_Hf):
+        def upload_episode(self, *a):
+            seen.append(main._dataset_progress())
+            return super().upload_episode(*a)
+
+    res = _run_upload(tmp_path, ["ep1", "ep_bad", "ep2"], _Watching(), monkeypatch)
+
+    assert res["status"] == "ok"
+    # Counted against what will actually be pushed: the screened-out take is not
+    # part of the total, or the bar would never reach the end.
+    assert seen == ["cmd1:0/2", "cmd1:1/2"]
+    assert main._dataset_progress() == ""  # nothing left behind once it is over
+
+
 def test_an_absent_episode_is_still_reported_as_missing(tmp_path, monkeypatch):
     # Absent locally (deleted, never recorded here) stays distinct from present
     # but unconvertible — they need different fixes.
