@@ -77,6 +77,7 @@ def _create_backend():
             stereo_profile=settings.stereo_profile,
             stereo_mode=settings.stereo_mode,
             stereo_exposure=settings.stereo_exposure,
+            stereo_gamma=settings.stereo_gamma,
         )
     else:  # auto
         try:
@@ -94,6 +95,7 @@ def _create_backend():
                 stereo_profile=settings.stereo_profile,
                 stereo_mode=settings.stereo_mode,
                 stereo_exposure=settings.stereo_exposure,
+                stereo_gamma=settings.stereo_gamma,
             )
         except ImportError:
             from grabette.backend.mock import MockBackend

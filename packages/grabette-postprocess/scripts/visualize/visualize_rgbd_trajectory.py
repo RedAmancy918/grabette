@@ -5,6 +5,13 @@ Visualize OAK-D RGBD SLAM trajectory using Rerun.
 Usage:
     uv run python scripts/visualize/visualize_rgbd_trajectory.py -i <episode_dir>
     uv run python scripts/visualize/visualize_rgbd_trajectory.py -i <episode_dir> --video-skip 3
+    uv run python scripts/visualize/visualize_rgbd_trajectory.py -i <episode_dir> --reference gt.csv
+
+--reference overlays a ground-truth trajectory (e.g. camera poses from a fixed
+ChArUco board): a CSV with frame_idx, x, y, z in metres, in any frame and
+possibly sparse. It is rigidly aligned onto the SLAM trajectory over the
+frames both share — rotation + translation, NO scale, so a scale error stays
+visible as error — and the resulting ATE is printed.
 """
 
 import json
@@ -66,6 +73,36 @@ def _gravity_align(positions: np.ndarray, quaternions: np.ndarray,
     new_quats = (R_align * Rotation.from_quat(quaternions)).as_quat()
     return new_pos, new_quats, g_world_unit
 
+
+
+def _align_rigid(src: np.ndarray, dst: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """R, t minimising |dst - (R src + t)|^2 (Kabsch/Umeyama without scale)."""
+    mu_s, mu_d = src.mean(0), dst.mean(0)
+    U, _, Vt = np.linalg.svd((dst - mu_d).T @ (src - mu_s))
+    S = np.eye(3)
+    if np.linalg.det(U) * np.linalg.det(Vt) < 0:
+        S[2, 2] = -1  # avoid a reflection
+    R = U @ S @ Vt
+    return R, mu_d - R @ mu_s
+
+
+def _load_reference(ref_csv: Path, pose_map: dict) -> dict:
+    """Reference positions keyed by frame_idx, rigidly aligned onto the SLAM poses."""
+    ref = pd.read_csv(ref_csv)
+    ref_pos = {int(r.frame_idx): np.array([r.x, r.y, r.z]) for r in ref.itertuples()}
+    common = sorted(set(ref_pos) & set(pose_map))
+    if len(common) < 3:
+        print(f"Error: reference shares only {len(common)} frames with the SLAM trajectory")
+        sys.exit(1)
+    src = np.array([ref_pos[k] for k in common])
+    dst = np.array([pose_map[k]['pos'] for k in common])
+    R, t = _align_rigid(src, dst)
+    err = np.linalg.norm(dst - (src @ R.T + t), axis=1)
+    print("=== Reference ===")
+    print(f"  {len(ref_pos)} poses, {len(common)} shared with SLAM")
+    print(f"  ATE (rigid, no scale): RMS {1000 * np.sqrt((err ** 2).mean()):.1f} mm, "
+          f"median {1000 * np.median(err):.1f} mm, max {1000 * err.max():.1f} mm\n")
+    return {k: R @ p + t for k, p in ref_pos.items()}
 
 
 def _load_oak_imu(oak_dir: Path) -> dict | None:
@@ -131,7 +168,10 @@ def _log_oak_imu(imu_data: dict, t0: float):
                    'Normally NOT needed — run_oak_slam already does this when '
                    'producing camera_trajectory.csv. Use for legacy CSVs that '
                    'predate the in-pipeline gravity align.')
-def main(episode_dir, show_video, video_skip, app_id, gravity_align):
+@click.option('--reference', type=click.Path(exists=True), default=None,
+              help='Ground-truth CSV (frame_idx, x, y, z in metres, any frame, '
+                   'may be sparse), rigidly aligned onto SLAM and overlaid.')
+def main(episode_dir, show_video, video_skip, app_id, gravity_align, reference):
     """Visualize OAK SLAM trajectory from a processed episode directory."""
     episode_dir = Path(episode_dir)
     oak_dir = episode_dir / "oak"
@@ -299,6 +339,13 @@ def main(episode_dir, show_video, video_skip, app_id, gravity_align):
             'quat': np.array([row['q_x'], row['q_y'], row['q_z'], row['q_w']]),
         }
 
+    # --- Reference (ground truth) overlay ---
+    ref_map = _load_reference(Path(reference), pose_map) if reference else {}
+    if ref_map:
+        rr.log("world/reference_full",
+               rr.Points3D(np.array([ref_map[k] for k in sorted(ref_map)]),
+                           colors=[255, 140, 0], radii=0.002), static=True)
+
     # --- Animate ---
     print(f"Visualizing {n_total} frames (skip={video_skip})...")
     trajectory_so_far = []
@@ -334,6 +381,15 @@ def main(episode_dir, show_video, video_skip, app_id, gravity_align):
                 colors=[[255, 0, 0], [0, 255, 0], [0, 0, 255]],
             ))
 
+        # Current reference position; cleared on frames without one so a
+        # stale point is never shown next to a newer SLAM pose.
+        if ref_map:
+            if frame_idx in ref_map:
+                rr.log("world/reference_current",
+                       rr.Points3D(ref_map[frame_idx], colors=[255, 140, 0], radii=0.006))
+            else:
+                rr.log("world/reference_current", rr.Clear(recursive=False))
+
         if video_cap is not None:
             # dcam_left.mp4 frames are 1:1 with SLAM trajectory frame_idx —
             # both came from the same StereoDepth output in encoding order.
@@ -351,6 +407,8 @@ def main(episode_dir, show_video, video_skip, app_id, gravity_align):
     print("  Green line: full trajectory (static)")
     print("  Blue line:  trajectory up to current time")
     print("  RGB arrows: camera X/Y/Z axes")
+    if ref_map:
+        print("  Orange:     reference trajectory (rigidly aligned)")
 
     if video_cap is not None:
         video_cap.release()

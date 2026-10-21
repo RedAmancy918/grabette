@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     stereo_profile: Literal["skl2mp220", "ar0144"] = "skl2mp220"
     stereo_mode: str = "3040x1080"
     stereo_exposure: int = 300
+    # UVC gamma (100-300, camera default 100); 0 leaves the camera's value.
+    # The SKL has no gain control, so a shorter exposure is brightened here,
+    # on the camera, before JPEG compression.
+    stereo_gamma: int = 0
 
     # UI
     ui_enabled: bool = True

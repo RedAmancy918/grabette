@@ -120,6 +120,23 @@ def test_sets_mjpg_passthrough_and_manual_exposure(fake_camera):
     assert fake_camera[0].released
 
 
+def test_gamma_set_and_restored(fake_camera):
+    cap = StereoUvcCapture(SyncManager(), exposure=150, gamma=180)
+    cap.init_device()
+    gamma_while_running = fake_camera[0].props[cv2.CAP_PROP_GAMMA]
+    cap.shutdown()
+    assert gamma_while_running == 180
+    # Back to the camera default: UVC controls persist on the device.
+    assert fake_camera[0].props[cv2.CAP_PROP_GAMMA] == 100
+
+
+def test_gamma_untouched_by_default(fake_camera):
+    cap = StereoUvcCapture(SyncManager())
+    cap.init_device()
+    cap.shutdown()
+    assert cv2.CAP_PROP_GAMMA not in fake_camera[0].props
+
+
 def test_nothing_written_while_idle(fake_camera, tmp_path):
     cap = StereoUvcCapture(SyncManager())
     cap.init_device()

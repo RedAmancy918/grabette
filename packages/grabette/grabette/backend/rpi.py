@@ -100,7 +100,7 @@ class RpiBackend(Backend):
         orbbec_ir_exposure_us: int = 0, orbbec_ir_gain: int = 0,
         orbbec_rotate_180: bool = False,
         stereo_profile: str = "skl2mp220", stereo_mode: str = "3040x1080",
-        stereo_exposure: int = 300,
+        stereo_exposure: int = 300, stereo_gamma: int = 0,
     ) -> None:
         super().__init__()
         self._running = False
@@ -136,6 +136,7 @@ class RpiBackend(Backend):
         self._stereo_profile = stereo_profile
         self._stereo_mode = stereo_mode
         self._stereo_exposure = stereo_exposure
+        self._stereo_gamma = stereo_gamma
 
         self._sync = None
         self._camera = None
@@ -275,6 +276,7 @@ class RpiBackend(Backend):
                     profile=self._stereo_profile,
                     mode=self._stereo_mode,
                     exposure=self._stereo_exposure,
+                    gamma=self._stereo_gamma,
                 )
             else:
                 self._oakd = OakdCapture(self._sync)

@@ -109,6 +109,7 @@ class StereoUvcCapture:
         profile: str = "skl2mp220",
         mode: str = "3040x1080",
         exposure: int = 300,
+        gamma: int = 0,
     ) -> None:
         self.sync = sync_manager
         self.profile_name = profile
@@ -119,6 +120,10 @@ class StereoUvcCapture:
         # under the frame period: auto-exposure on the SKL at 3040x1080 picks
         # ~60 ms and throttles 30 fps to 16.6.
         self.exposure = exposure
+        # UVC gamma, 100-300; 0 = leave the camera's value. With no gain
+        # control on these cameras, this is how a shorter exposure is
+        # brightened, on the camera and before JPEG compression.
+        self.gamma = gamma
 
         self._cap: cv2.VideoCapture | None = None
         self._node: tuple[int, str] | None = None
@@ -164,7 +169,9 @@ class StereoUvcCapture:
         cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # 1 = manual
         cap.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
-        got = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        if self.gamma:
+            cap.set(cv2.CAP_PROP_GAMMA, self.gamma)
+        got =(int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         if got != (self.width, self.height):
             cap.release()
@@ -173,8 +180,9 @@ class StereoUvcCapture:
                 f"wanted {self.width}x{self.height}")
         self._cap = cap
 
-        logger.info("Stereo camera ready: %s on /dev/video%d, %s@%d, exposure %d",
-                    name, index, self.mode, self.fps, self.exposure)
+        logger.info("Stereo camera ready: %s on /dev/video%d, %s@%d, exposure %d, gamma %s",
+                    name, index, self.mode, self.fps, self.exposure,
+                    self.gamma or "camera default")
 
         self._frames_read = 0
         self._initialized = True
@@ -313,6 +321,8 @@ class StereoUvcCapture:
         # UVC controls persist on the device after release: give auto-exposure
         # back so other tools are not left with our fixed value.
         self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+        if self.gamma:
+            self._cap.set(cv2.CAP_PROP_GAMMA, 100)  # camera default
         self._cap.release()
         self._cap = None
         self._initialized = False
@@ -327,6 +337,7 @@ class StereoUvcCapture:
             "mode": self.mode,
             "fps": self.fps,
             "exposure_100us": self.exposure,
+            "gamma": self.gamma or None,
             "swap_eyes": self.profile["swap_eyes"],
         }
 
