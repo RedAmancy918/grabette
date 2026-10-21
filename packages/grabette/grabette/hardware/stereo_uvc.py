@@ -69,6 +69,10 @@ PROFILES = {
 # frame in six, i.e. ~5 fps. The recording path never decodes.
 _PREVIEW_EVERY = 6
 
+# A recording with a longer stretch than this between frames (or any failed
+# read) gets a warning at stop. 0.2 s = 6 frames at 30 fps.
+_GAP_WARN_S = 0.2
+
 # Frames read after init before wait_until_ready() reports ready. Exposure is
 # fixed, so there is no auto-exposure to converge; this only skips the first
 # frames after stream-on.
@@ -136,6 +140,11 @@ class StereoUvcCapture:
         self._initialized = False
         self._timestamps: list[dict] = []
         self._frames_read = 0
+        # Recording health, reset per recording. A stall used to be silent:
+        # one episode lost its last 2.4 s with nothing in the log.
+        self._read_failures = 0
+        self._last_frame_mono = 0.0
+        self._max_gap_s = 0.0
 
         self._latest_preview: np.ndarray | None = None
         self._thread: threading.Thread | None = None
@@ -222,6 +231,9 @@ class StereoUvcCapture:
             json.dumps(self._device_info(), indent=2))
 
         self._timestamps.clear()
+        self._read_failures = 0
+        self._max_gap_s = 0.0
+        self._last_frame_mono = time.monotonic()
         with self._files_lock:
             self._file = open(self._output_dir / "dcam_stereo.mjpeg", "wb")
             self._recording = True
@@ -237,6 +249,9 @@ class StereoUvcCapture:
             self._recording = False
             f, self._file = self._file, None
         f.close()
+        # Include the tail: frames that stop arriving before the stop are a
+        # gap too, and the one that went unnoticed was exactly that.
+        max_gap_s = max(self._max_gap_s, time.monotonic() - self._last_frame_mono)
 
         if self._output_dir:
             (self._output_dir / "dcam_stereo_timestamps.json").write_text(
@@ -244,10 +259,15 @@ class StereoUvcCapture:
 
         stats = {
             "stereo_frames": len(self._timestamps),
+            "read_failures": self._read_failures,
+            "max_gap_s": round(max_gap_s, 3),
             # No IMU. The key is always present because rpi.py reads
             # oakd_stats.get("imu_samples", 0) into metadata.json.
             "imu_samples": 0,
         }
+        if self._read_failures or max_gap_s > _GAP_WARN_S:
+            logger.warning("StereoUvcCapture: %d failed reads, longest gap %.2f s "
+                           "without a frame", self._read_failures, max_gap_s)
         logger.info("StereoUvcCapture recording stopped: %s", stats)
         return stats
 
@@ -261,7 +281,13 @@ class StereoUvcCapture:
             if not ok:
                 if not self._stop_event.is_set():
                     logger.debug("stereo camera read failed")
+                    if self._recording:
+                        self._read_failures += 1
                 continue
+            if self._recording:
+                now = time.monotonic()
+                self._max_gap_s = max(self._max_gap_s, now - self._last_frame_mono)
+                self._last_frame_mono = now
             # Kernel buffer timestamp (CLOCK_MONOTONIC), read before anything
             # else touches the capture.
             pos_ms = self._cap.get(cv2.CAP_PROP_POS_MSEC)

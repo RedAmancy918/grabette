@@ -397,6 +397,9 @@ def main(episode_dir, show_video, video_skip, app_id, gravity_align, reference):
             ret, frame = video_cap.read()
             if ret:
                 frame_disp = cv2.resize(frame, (640, 400), interpolation=cv2.INTER_AREA)
+                # OpenCV decodes BGR; Rerun expects RGB. Invisible on the
+                # grayscale OAK/Gemini streams, swaps red/blue on colour ones.
+                frame_disp = cv2.cvtColor(frame_disp, cv2.COLOR_BGR2RGB)
                 rr.log("camera_feed", rr.Image(frame_disp))
 
         if frame_i % (video_skip * 10) == 0:

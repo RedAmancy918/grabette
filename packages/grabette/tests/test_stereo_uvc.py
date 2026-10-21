@@ -137,6 +137,78 @@ def test_gamma_untouched_by_default(fake_camera):
     assert cv2.CAP_PROP_GAMMA not in fake_camera[0].props
 
 
+class FlakyCapture(FakeCapture):
+    """Fails `fail` reads in a row after `after` good frames, then recovers."""
+
+    def __init__(self, index, api, after=20, fail=5):
+        super().__init__(index, api)
+        self.n, self.after, self.fail = 0, after, fail
+
+    def read(self):
+        self.n += 1
+        if self.after < self.n <= self.after + self.fail:
+            time.sleep(1 / 200)
+            return False, None
+        return super().read()
+
+
+class StallingCapture(FakeCapture):
+    """Stops delivering frames (read blocks) after `after` frames."""
+
+    def __init__(self, index, api, after=20):
+        super().__init__(index, api)
+        self.n, self.after = 0, after
+
+    def read(self):
+        self.n += 1
+        if self.n > self.after:
+            time.sleep(0.05)  # blocked in the driver, no frame
+            return False, None
+        return super().read()
+
+
+def _record(monkeypatch, tmp_path, cls, seconds):
+    monkeypatch.setattr(stereo_uvc.cv2, "VideoCapture", cls)
+    monkeypatch.setattr(stereo_uvc, "find_video_node", lambda card: (1, "SPCA2100"))
+    sync = SyncManager()
+    sync.start()
+    cap = StereoUvcCapture(sync)
+    cap.init_device()
+    cap.start_recording(tmp_path)
+    time.sleep(seconds)
+    stats = cap.stop_recording()
+    cap.shutdown()
+    return stats
+
+
+def test_failed_reads_are_counted(monkeypatch, tmp_path, caplog):
+    stats = _record(monkeypatch, tmp_path, FlakyCapture, 0.3)
+    assert stats["read_failures"] == 5
+    assert "failed reads" in caplog.text
+
+
+def test_frames_stopping_before_stop_is_a_gap(monkeypatch, tmp_path, caplog):
+    # The case that went unnoticed: frames stop arriving well before the stop,
+    # with no gap BETWEEN recorded frames.
+    stats = _record(monkeypatch, tmp_path, StallingCapture, 0.5)
+    assert stats["max_gap_s"] > 0.3
+    assert "longest gap" in caplog.text
+
+
+def test_clean_recording_has_no_warning(fake_camera, tmp_path, caplog):
+    sync = SyncManager()
+    sync.start()
+    cap = StereoUvcCapture(sync)
+    cap.init_device()
+    cap.start_recording(tmp_path)
+    time.sleep(0.2)
+    stats = cap.stop_recording()
+    cap.shutdown()
+    assert stats["read_failures"] == 0
+    assert stats["max_gap_s"] < 0.1
+    assert "longest gap" not in caplog.text
+
+
 def test_nothing_written_while_idle(fake_camera, tmp_path):
     cap = StereoUvcCapture(SyncManager())
     cap.init_device()
