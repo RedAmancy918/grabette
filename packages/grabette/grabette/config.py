@@ -88,7 +88,8 @@ class Settings(BaseSettings):
     orbbec_ir_exposure_us: int = 0
     orbbec_ir_gain: int = 0
 
-    orbbec_rotate_180: bool = True
+    # None = derived from `hand` (right → 180°, left → 0°).
+    orbbec_rotate_180: bool | None = None
 
     # UI
     ui_enabled: bool = True
@@ -153,6 +154,8 @@ class Settings(BaseSettings):
             self.distal_sign = default["distal"]
         if self.proximal_sign is None:
             self.proximal_sign = default["proximal"]
+        if self.orbbec_rotate_180 is None:
+            self.orbbec_rotate_180 = self.hand == "right"
         return self
 
 
