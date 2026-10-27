@@ -100,8 +100,6 @@ def _process_result(status_payload, extra_args=None, posted=None):
 
     class _Session:
         def get(self, url, **kw):
-            # A callable is asked afresh on every poll, for a Space whose status
-            # moves over time.
             return _Resp(status_payload() if callable(status_payload) else status_payload)
 
         def post(self, url, **kw):
@@ -133,9 +131,6 @@ def _process_result(status_payload, extra_args=None, posted=None):
 
 
 class _Clock:
-    """Stands in for main's `time` module, so a test can move the clock the
-    conversion watchdog reads without touching the event loop's own."""
-
     def __init__(self):
         self.now = 0.0
 
@@ -147,9 +142,6 @@ class _Clock:
 
 
 def test_a_slow_but_progressing_conversion_is_never_abandoned(monkeypatch):
-    # THE regression: a fixed 60-min cap failed a big conversion that was still
-    # working through its episodes. Each poll here is 10 minutes apart — hours in
-    # all — but the log grows every time, so it must run to completion.
     monkeypatch.setattr(main, "_wake_space", _awake)
     monkeypatch.setattr("huggingface_hub.get_token", lambda: "tok")
     clock = _Clock()
@@ -165,13 +157,11 @@ def test_a_slow_but_progressing_conversion_is_never_abandoned(monkeypatch):
 
     res = _process_result(status)
 
-    assert clock.now >= 5 * 3600.0  # well past any elapsed-time cap
+    assert clock.now >= 5 * 3600.0
     assert res["status"] == "ok"
 
 
 def test_a_silent_conversion_is_abandoned_instead_of_waiting_forever(monkeypatch):
-    # The other half of the bound: a Space whose status never changes is wedged
-    # (or gone), and the device must report back so the fleet frees it.
     monkeypatch.setattr(main, "_wake_space", _awake)
     monkeypatch.setattr("huggingface_hub.get_token", lambda: "tok")
     clock = _Clock()

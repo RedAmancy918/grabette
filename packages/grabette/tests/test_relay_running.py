@@ -1,11 +1,5 @@
-"""What the relay client tells the fleet about the commands it holds.
-
-The fleet has no time cap on an upload or a conversion: it waits on the device.
-What lets it stop waiting on a command the device FORGOT (a daemon restart quick
-enough to never look offline, a lost result) is the `running` list on every
-heartbeat, and the result being retried before it is given up on. Both pinned
-here, against the real RelayClient.run loop with the network faked out.
-"""
+"""The `running` list on the heartbeat and the result retry, against the real
+RelayClient.run loop with the network faked out."""
 import asyncio
 
 import grabette.relay_client as rc
@@ -31,8 +25,8 @@ class _Resp:
 
 
 class _Session:
-    """The fleet, as the relay client sees it: hands out `commands` once, records
-    every heartbeat's params, and fails the first `failing_reports` results."""
+    """Hands out `commands` once, records heartbeats, fails the first
+    `failing_reports` results."""
 
     def __init__(self, commands, failing_reports=0):
         self._commands = list(commands)
@@ -109,8 +103,6 @@ def test_a_held_command_is_listed_on_every_beat_until_it_is_reported(monkeypatch
 
     asyncio.run(go())
 
-    # Always sent, empty included — that is what lets the fleet tell "holds
-    # nothing" from a build that does not report at all.
     assert all("running" in b for b in session.beats)
     assert session.beats[-1]["running"] == ""
 
