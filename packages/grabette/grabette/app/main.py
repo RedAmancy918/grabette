@@ -950,7 +950,7 @@ async def _dispatch_relay_command(cmd: dict) -> dict:
                     if prog.get("phase"):
                         _work_progress[cmd_id] = (str(prog["phase"]), prog.get("done"),
                                                   prog.get("total"))
-                    mark = (prog, len(str(st.get("log") or "")), len(st.get("quality") or []))
+                    mark = (len(str(st.get("log") or "")), len(st.get("quality") or []))
                     if mark != last_mark:
                         last_mark, last_progress = mark, time.monotonic()
                     sstatus = st.get("status", "running")
