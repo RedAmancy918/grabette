@@ -164,6 +164,7 @@ class RelayClient:
         # stale entry for us that polls fine, so a new token forces a re-register.
         self._registered_token: Optional[str] = None
         self._sent_depth_warm: Optional[bool] = None  # last depth_warm sent to the fleet
+        self._sent_progress: Optional[str] = None  # last progress sent to the fleet
         self._battery: Optional[float] = None  # cached; refreshed off the heartbeat path
         self.status = "offline"
 
@@ -175,13 +176,22 @@ class RelayClient:
         except Exception:
             return None
 
+    def _read_progress(self) -> Optional[str]:
+        if self.progress_provider is None:
+            return None
+        try:
+            return self.progress_provider() or None
+        except Exception:
+            return None
+
     async def _sleep_until_beat(self) -> None:
-        """One heartbeat interval, cut short by a depth_warm change."""
+        """One heartbeat interval, cut short by a depth_warm or progress change."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + _HEARTBEAT_INTERVAL_S
         while (left := deadline - loop.time()) > 0:
             await asyncio.sleep(min(_DEPTH_WARM_CHECK_S, left))
-            if self._read_depth_warm() != self._sent_depth_warm:
+            if (self._read_depth_warm() != self._sent_depth_warm
+                    or self._read_progress() != self._sent_progress):
                 return
 
     def _headers(self, token: str) -> dict[str, str]:
@@ -342,13 +352,9 @@ class RelayClient:
                     # Sent on every beat, empty included: lets the fleet spot a
                     # command this device forgot (fast restart, lost result).
                     params["running"] = ",".join(sorted(inflight))
-                    if self.progress_provider is not None:  # in-memory, safe inline
-                        try:
-                            prog = self.progress_provider()
-                        except Exception:
-                            prog = None
-                        if prog:
-                            params["progress"] = prog
+                    prog = self._sent_progress = self._read_progress()  # in-memory, safe inline
+                    if prog:
+                        params["progress"] = prog
                     warm = self._read_depth_warm()
                     self._sent_depth_warm = warm
                     if warm is not None:
