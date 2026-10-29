@@ -113,6 +113,10 @@ class BMI088:
         - Sensortime: microseconds
     """
 
+    # ImuDriver contract (see hardware/imu.py). SENSORTIME is a 24-bit counter.
+    TIMESTAMP_RESOLUTION_US = SENSORTIME_RESOLUTION_US
+    COUNTER_BITS = 24
+
     def __init__(
         self,
         i2c,
@@ -240,6 +244,13 @@ class BMI088:
 
     def read_sensortime_us(self) -> float:
         return self.read_sensortime() * SENSORTIME_RESOLUTION_US
+
+    def read_timestamp(self) -> int:
+        """ImuDriver-contract alias for read_sensortime()."""
+        return self.read_sensortime()
+
+    def deinit(self) -> None:
+        """No device-side teardown; the I2C bus is owned by the caller."""
 
     def read_accel_with_time(self) -> tuple[tuple[float, float, float], int]:
         data = self._read_accel(ACC_DATA, 9)

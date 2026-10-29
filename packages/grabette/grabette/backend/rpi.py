@@ -18,7 +18,7 @@ from grabette.config import settings
 from grabette.errors import exc_text as _exc_text
 from grabette.hardware.frames import build_frames_payload
 from grabette.models import AngleSample, CaptureStatus, IMUSample, SensorState
-from grabette.output import write_json_atomic
+from grabette.output import write_imu_json, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,15 @@ _CAMERA_INTRINSICS_SRC = _PACKAGE_ROOT / "config" / "rpi_camera_intrinsics.json"
 _URDF_ROOT = _PACKAGE_ROOT / "urdf"
 
 FPS = 46
+
+# IMU sensors to probe at start, in priority order: (sensor, I2C bus, kwargs).
+# The LSM6DSV16X sits at 0x6A on the main bus (1) of the current HAT; the older
+# BMI088 is on bus 3. detect_imu_capture tries each and uses the first that
+# answers, so one image runs on either hardware and on a device with neither.
+_IMU_CANDIDATES = [
+    ("lsm6dsv16x", 1, {}),
+    ("bmi088", 3, {}),
+]
 
 # How long start_capture waits for the OAK-D to produce valid (post-warmup)
 # frames before starting the recording clock. Safety fallback only — the OAK-D
@@ -101,6 +110,7 @@ class RpiBackend(Backend):
         orbbec_rotate_180: bool = False,
         stereo_profile: str = "skl2mp220", stereo_mode: str = "3040x1080",
         stereo_exposure: int = 300, stereo_gamma: int = 0,
+        enable_imu: bool = True, imu_hz: int = 240,
     ) -> None:
         super().__init__()
         self._running = False
@@ -137,11 +147,16 @@ class RpiBackend(Backend):
         self._stereo_mode = stereo_mode
         self._stereo_exposure = stereo_exposure
         self._stereo_gamma = stereo_gamma
+        self._enable_imu = enable_imu
+        self._imu_hz = imu_hz
 
         self._sync = None
         self._camera = None
         self._angle = None
         self._oakd = None
+        # Standalone IMU (LSM6DSV16X / BMI088), auto-detected in start(). None
+        # when disabled or no sensor is present — recording proceeds without it.
+        self._imu = None
         # True when the OAK-D is on because a capture auto-enabled it (the
         # daemon owns its power and will auto-power-down when idle). Survives
         # back-to-back captures; cleared on power-down or when the user takes
@@ -188,6 +203,9 @@ class RpiBackend(Backend):
             self._init_oakd()
 
         self._init_speaker()
+
+        if self._enable_imu:
+            self._init_imu()
 
         import asyncio
         self._depth_camera_watch_task = asyncio.create_task(
@@ -316,6 +334,13 @@ class RpiBackend(Backend):
         except Exception:
             logger.warning("Speaker init failed, continuing without sound", exc_info=True)
             self._speaker = None
+
+    def _init_imu(self) -> None:
+        """Auto-detect and initialize the standalone IMU. Best-effort: a device
+        with old or no IMU hardware records without one, so this never raises
+        and never blocks capture (unlike the camera/angle hardware gates)."""
+        from grabette.hardware.imu import detect_imu_capture
+        self._imu = detect_imu_capture(self._sync, _IMU_CANDIDATES, self._imu_hz)
 
     def _init_angle_sensors(self, quiet: bool = False) -> None:
         """Bring up the AS5600 gripper encoders.
@@ -737,7 +762,26 @@ class RpiBackend(Backend):
             self._watch_angle_sensors()
 
         imu = None
-        if self._oakd is not None and self._oakd.is_initialized:
+        # Prefer the standalone IMU; during capture read its buffer (no I2C
+        # contention), when idle read it live. Fall back to the depth camera's
+        # built-in IMU only when no standalone one is present.
+        if self._imu is not None:
+            if self._capturing:
+                if self._imu._samples.accel:
+                    la = self._imu._samples.accel[-1]
+                    lg = (self._imu._samples.gyro[-1] if self._imu._samples.gyro
+                          else {"value": (0.0, 0.0, 0.0)})
+                    imu = IMUSample(timestamp_ms=la["cts"],
+                                    accel=tuple(la["value"]), gyro=tuple(lg["value"]))
+            else:
+                try:
+                    live = self._imu.read_live()
+                except Exception:
+                    live = None
+                if live is not None:
+                    imu = IMUSample(timestamp_ms=time.time() * 1000,
+                                    accel=live[0], gyro=live[1])
+        if imu is None and self._oakd is not None and self._oakd.is_initialized:
             raw_imu = self._oakd.get_latest_imu()
             if raw_imu is not None:
                 imu = IMUSample(**raw_imu)
@@ -849,6 +893,18 @@ class RpiBackend(Backend):
             # Start synchronized capture — all streams share the same
             # SyncManager t=0 reference (time.monotonic based).
             self._sync.start()
+            # Retry detection if a boot-time probe found nothing (mirrors the
+            # angle-sensor retry above); then start it. An IMU failure must not
+            # abort the take — drop to no-IMU and keep recording.
+            if self._enable_imu and self._imu is None:
+                self._init_imu()
+            if self._imu is not None:
+                try:
+                    self._imu.start_capture()
+                except Exception as e:
+                    logger.warning("IMU start failed — recording without IMU: %s", e)
+                    self._imu.close()
+                    self._imu = None
             if self._angle:
                 self._angle.start_capture()
             if self._oakd and self._oakd.is_initialized:
@@ -920,6 +976,19 @@ class RpiBackend(Backend):
         self._note_angle_output(angle_samples)
         t_phases["angle_stop"] = (time.monotonic() - _t) * 1000
 
+        # Stop the IMU here too (before the camera mux), so its samples don't
+        # extend past the video duration. Spent on stop(); re-detected next take.
+        _t = time.monotonic()
+        imu_samples = None
+        imu_count = 0
+        imu_sensor = self._imu.sensor if self._imu is not None else None
+        if self._imu is not None:
+            imu_data = self._imu.stop()
+            imu_count = len(imu_data.accel)
+            imu_samples = imu_data if imu_data.accel else None
+            self._imu = None
+        t_phases["imu_stop"] = (time.monotonic() - _t) * 1000
+
         # Finalize OAK and RPi camera concurrently. Both flip their "recording"
         # flag immediately (capture stops at once) and then spend ~1-2s muxing
         # H.264 → mp4. Running the OAK finalize in an executor while the camera
@@ -966,7 +1035,10 @@ class RpiBackend(Backend):
             episode_id=self._episode_dir.name if self._episode_dir else None,
             duration_seconds=duration,
             frame_count=self._camera.frame_count,
-            imu_sample_count=oakd_stats.get("imu_samples", 0) if oakd_stats else 0,
+            # Prefer the standalone IMU when one was active this take; otherwise
+            # fall back to the depth camera's built-in IMU count (OAK-D).
+            imu_sample_count=(imu_count if imu_sensor is not None
+                              else (oakd_stats.get("imu_samples", 0) if oakd_stats else 0)),
             angle_sample_count=angle_count,
         )
 
@@ -1001,6 +1073,11 @@ class RpiBackend(Backend):
 
         meta["depth_camera"] = _camera_metadata(self._depth_camera, self._oakd)
 
+        # Standalone IMU provenance (which chip actually recorded imu_data.json).
+        if imu_sensor is not None:
+            meta["imu"] = {"sensor": imu_sensor, "hz": self._imu_hz,
+                           "sample_count": imu_count}
+
         # Drain the sync metadata while state is still live — _take_sync_metadata
         # consumes it, so it has to happen here and not in the deferred writer.
         sync_meta = self._take_sync_metadata()
@@ -1023,6 +1100,7 @@ class RpiBackend(Backend):
         loop.call_soon(
             self._finalize_and_reinit,
             episode_dir, frame_timestamps, angle_samples, meta, urdf_path,
+            imu_samples,
         )
 
         total_ms = t_phases.get("angle_stop", 0) + t_phases.get("muxes_wallclock", 0)
@@ -1040,6 +1118,7 @@ class RpiBackend(Backend):
         angle_samples,
         meta,
         urdf_path,
+        imu_samples=None,
     ) -> None:
         """Deferred post-stop work: JSON writes + calibration + frames + reinit.
 
@@ -1058,6 +1137,13 @@ class RpiBackend(Backend):
                 if angle_samples is not None:
                     (episode_dir / "angle_data.json").write_text(
                         json.dumps({"samples": angle_samples})
+                    )
+                # Standalone IMU → imu_data.json (UMI/SLAM GoPro-style format).
+                if imu_samples is not None:
+                    write_imu_json(
+                        imu_samples.accel, imu_samples.gyro,
+                        meta.get("fps", float(FPS)),
+                        episode_dir / "imu_data.json",
                     )
                 # Canonical RPi fisheye calibration (KannalaBrandt8).
                 if _CAMERA_INTRINSICS_SRC.is_file():
@@ -1130,6 +1216,8 @@ class RpiBackend(Backend):
         self._init_camera()
         if self._enable_angle:
             self._init_angle_sensors()
+        if self._enable_imu and self._imu is None:
+            self._init_imu()
         self._needs_reinit = False
 
     def get_capture_status(self) -> CaptureStatus:

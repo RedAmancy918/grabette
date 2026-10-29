@@ -43,8 +43,13 @@ class Settings(BaseSettings):
     camera_resolution_w: int = 1296
     camera_resolution_h: int = 972
 
-    # IMU
-    imu_hz: int = 200
+    # IMU. The sensor is auto-detected at start (LSM6DSV16X on newer HATs,
+    # BMI088 on older ones); a device with neither records without IMU. Set
+    # enable_imu=False to skip the probe entirely. 240 Hz is the closest rate
+    # the LSM6DSV16X supports (its grid has no 200 Hz); the BMI088 rounds it
+    # to its own nearest ODR.
+    enable_imu: bool = True
+    imu_hz: int = 240
 
     # Angle sensors (AS5600 on I2C buses 4 & 5)
     angle_sensors: bool = True
