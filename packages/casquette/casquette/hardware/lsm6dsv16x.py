@@ -56,6 +56,7 @@ FIFO_TAG_GYRO = 0x01
 FIFO_TAG_ACCEL = 0x02
 FIFO_TAG_TIMESTAMP = 0x04
 FIFO_MAX_ENTRIES = 512    # device FIFO depth; cap a single drain to this
+FIFO_BURST_ENTRIES = 128  # entries per burst I2C read (128*7 = 896 bytes)
 
 # CTRL3 bits
 CTRL3_SW_RESET = 0x01
@@ -188,24 +189,36 @@ class LSM6DSV16X:
     def read_fifo(self) -> list[tuple[str, tuple[float, float, float], int]]:
         """Drain pending FIFO entries. Returns an ordered list of
         (kind, (x,y,z), raw_ticks) where kind is 'accel' or 'gyro' and raw_ticks
-        is the hardware timestamp counter value for that sample."""
+        is the hardware timestamp counter value for that sample.
+
+        Entries are read in bursts: a single multi-byte I2C read pops several
+        7-byte entries, the device auto-wrapping the output address from
+        FIFO_DATA_OUT_Z_H (0x7E) back to FIFO_DATA_OUT_TAG (0x78). Per-entry
+        reads cannot keep up with the ~720 entries/s at 240 Hz and let the FIFO
+        overflow; a burst drains the backlog in one or two transactions.
+        """
         n = min(self._fifo_count(), FIFO_MAX_ENTRIES)
         out: list[tuple[str, tuple[float, float, float], int]] = []
-        for _ in range(n):
-            entry = self._read(FIFO_DATA_OUT_TAG, 7)  # tag + 6 data bytes; pops one entry
-            tag = entry[0] >> 3
-            d = entry[1:7]
-            if tag == FIFO_TAG_TIMESTAMP:
-                self._fifo_ts = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24)
-            elif tag == FIFO_TAG_ACCEL:
-                x, y, z = unpack('<hhh', d)
-                out.append(("accel", (x * self._accel_scale, y * self._accel_scale,
-                                      z * self._accel_scale), self._fifo_ts))
-            elif tag == FIFO_TAG_GYRO:
-                x, y, z = unpack('<hhh', d)
-                out.append(("gyro", (x * self._gyro_scale, y * self._gyro_scale,
-                                     z * self._gyro_scale), self._fifo_ts))
-            # other tags (temperature, etc.) are not batched here; ignore.
+        done = 0
+        while done < n:
+            c = min(FIFO_BURST_ENTRIES, n - done)
+            raw = self._read(FIFO_DATA_OUT_TAG, 7 * c)  # one transaction, c entries
+            for k in range(c):
+                off = k * 7
+                tag = raw[off] >> 3
+                d = raw[off + 1:off + 7]
+                if tag == FIFO_TAG_TIMESTAMP:
+                    self._fifo_ts = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24)
+                elif tag == FIFO_TAG_ACCEL:
+                    x, y, z = unpack('<hhh', d)
+                    out.append(("accel", (x * self._accel_scale, y * self._accel_scale,
+                                          z * self._accel_scale), self._fifo_ts))
+                elif tag == FIFO_TAG_GYRO:
+                    x, y, z = unpack('<hhh', d)
+                    out.append(("gyro", (x * self._gyro_scale, y * self._gyro_scale,
+                                         z * self._gyro_scale), self._fifo_ts))
+                # other tags (temperature, etc.) are not batched here; ignore.
+            done += c
         return out
 
     def read_accel(self) -> tuple[float, float, float]:

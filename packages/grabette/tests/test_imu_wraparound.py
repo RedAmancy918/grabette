@@ -16,6 +16,7 @@ from grabette.hardware.bmi088 import BMI088, SENSORTIME_RESOLUTION_US
 from grabette.hardware.imu import ImuCapture, ImuDriver, create_imu_driver
 from grabette.hardware.lsm6dsv16x import (
     LSM6DSV16X, TIMESTAMP_RESOLUTION_US, WHO_AM_I, OUTX_L_A, OUTX_L_G, TIMESTAMP0,
+    FIFO_STATUS1, FIFO_DATA_OUT_TAG, FIFO_TAG_ACCEL, FIFO_TAG_GYRO, FIFO_TAG_TIMESTAMP,
 )
 from grabette.hardware.sync import SyncManager
 
@@ -182,6 +183,22 @@ def test_lsm6dsv16x_wrong_whoami_raises():
     dev = LSM6DSV16X(FakeI2C({WHO_AM_I: bytes([0x6A])}))
     with pytest.raises(RuntimeError, match="WHO_AM_I"):
         dev.init()
+
+
+def test_lsm6dsv16x_read_fifo_parses_burst():
+    def entry(tag, data6):
+        return bytes([tag << 3]) + data6
+    stream = (entry(FIFO_TAG_TIMESTAMP, bytes([0x10, 0, 0, 0, 0, 0]))   # ts = 16
+              + entry(FIFO_TAG_ACCEL, struct.pack('<hhh', 1000, 0, -2000))
+              + entry(FIFO_TAG_GYRO, struct.pack('<hhh', 100, -100, 0)))
+    regs = {FIFO_STATUS1: bytes([3, 0]), FIFO_DATA_OUT_TAG: stream}  # 3 entries pending
+    dev = LSM6DSV16X(FakeI2C(regs))
+
+    ev = dev.read_fifo()
+    assert [e[0] for e in ev] == ["accel", "gyro"]          # timestamp consumed, not emitted
+    assert ev[0][2] == 16 and ev[1][2] == 16                # both tagged with ts=16
+    assert ev[0][1][0] == pytest.approx(1000 * 0.244e-3 * 9.80665, rel=1e-6)
+    assert ev[1][1][0] == pytest.approx(100 * 70e-3 * 3.14159265359 / 180.0, rel=1e-6)
 
 
 def test_drivers_conform_to_protocol():
