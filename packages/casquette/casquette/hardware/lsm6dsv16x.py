@@ -38,6 +38,25 @@ OUTX_L_G = 0x22  # gyro  X/Y/Z, 6 bytes
 OUTX_L_A = 0x28  # accel X/Y/Z, 6 bytes
 TIMESTAMP0 = 0x40  # 32-bit counter, 4 bytes little-endian
 
+# FIFO. Hardware batches accel+gyro at the ODR with periodic timestamp entries,
+# so draining it gives exactly-ODR-spaced samples with hardware timestamps —
+# regular regardless of when (or how jittery) the I2C drain happens. Each FIFO
+# entry is 7 bytes: a tag byte (sensor id in [7:3]) + 6 data bytes.
+FIFO_CTRL1 = 0x07  # watermark threshold low (unused: we drain by count)
+FIFO_CTRL2 = 0x08
+FIFO_CTRL3 = 0x09  # BDR_GY [7:4] | BDR_XL [3:0]
+FIFO_CTRL4 = 0x0A  # DEC_TS_BATCH [7:6] | FIFO_MODE [2:0]
+FIFO_STATUS1 = 0x1B  # DIFF_FIFO (unread count) [7:0]
+FIFO_STATUS2 = 0x1C  # [0] = DIFF_FIFO[8]; [5] overrun; [7] watermark
+FIFO_DATA_OUT_TAG = 0x78  # tag byte; 0x79-0x7E hold the 6 data bytes
+
+FIFO_MODE_STREAM = 0x06   # continuous (overwrite-oldest) mode
+FIFO_TMSTMP_DEC_1 = 0x01  # a timestamp entry per batch slot
+FIFO_TAG_GYRO = 0x01
+FIFO_TAG_ACCEL = 0x02
+FIFO_TAG_TIMESTAMP = 0x04
+FIFO_MAX_ENTRIES = 512    # device FIFO depth; cap a single drain to this
+
 # CTRL3 bits
 CTRL3_SW_RESET = 0x01
 CTRL3_IF_INC = 0x04
@@ -82,6 +101,9 @@ class LSM6DSV16X:
     # ImuDriver contract.
     TIMESTAMP_RESOLUTION_US = TIMESTAMP_RESOLUTION_US
     COUNTER_BITS = 32
+    # Capture via the hardware FIFO (ImuCapture drains it) rather than polling
+    # the data registers — the only way to get a regular rate on a shared bus.
+    USES_FIFO = True
 
     def __init__(
         self,
@@ -96,6 +118,9 @@ class LSM6DSV16X:
         self._accel_fs = accel_fs
         self._gyro_fs = gyro_fs
         self._odr = odr
+        # Most recent timestamp-tag value seen while draining the FIFO; carried
+        # across drains and assigned to the accel/gyro entries that follow it.
+        self._fifo_ts = 0
 
         # mg/LSB -> m/s² ; mdps/LSB -> rad/s
         self._accel_scale = XL_SENSITIVITY_MG[accel_fs] * 1e-3 * GRAVITY
@@ -142,7 +167,46 @@ class LSM6DSV16X:
 
         # Enable the hardware timestamp counter.
         self._write(FUNCTIONS_ENABLE, 0x40)
+
+        # FIFO: batch accel + gyro at the ODR, plus periodic timestamp entries,
+        # in continuous (stream) mode. ImuCapture drains this instead of polling.
+        self._write(FIFO_CTRL3, (self._odr << 4) | self._odr)  # BDR_GY | BDR_XL
+        self._write(FIFO_CTRL4, (FIFO_TMSTMP_DEC_1 << 6) | FIFO_MODE_STREAM)
         time.sleep(0.02)
+
+    def flush_fifo(self) -> None:
+        """Clear stale FIFO contents and re-anchor the timestamp reference.
+        Called at capture start so the recording begins with a clean buffer."""
+        self._write(FIFO_CTRL4, 0x00)  # bypass mode empties the FIFO
+        self._write(FIFO_CTRL4, (FIFO_TMSTMP_DEC_1 << 6) | FIFO_MODE_STREAM)
+        self._fifo_ts = self.read_timestamp()
+
+    def _fifo_count(self) -> int:
+        s = self._read(FIFO_STATUS1, 2)
+        return s[0] | ((s[1] & 0x01) << 8)
+
+    def read_fifo(self) -> list[tuple[str, tuple[float, float, float], int]]:
+        """Drain pending FIFO entries. Returns an ordered list of
+        (kind, (x,y,z), raw_ticks) where kind is 'accel' or 'gyro' and raw_ticks
+        is the hardware timestamp counter value for that sample."""
+        n = min(self._fifo_count(), FIFO_MAX_ENTRIES)
+        out: list[tuple[str, tuple[float, float, float], int]] = []
+        for _ in range(n):
+            entry = self._read(FIFO_DATA_OUT_TAG, 7)  # tag + 6 data bytes; pops one entry
+            tag = entry[0] >> 3
+            d = entry[1:7]
+            if tag == FIFO_TAG_TIMESTAMP:
+                self._fifo_ts = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24)
+            elif tag == FIFO_TAG_ACCEL:
+                x, y, z = unpack('<hhh', d)
+                out.append(("accel", (x * self._accel_scale, y * self._accel_scale,
+                                      z * self._accel_scale), self._fifo_ts))
+            elif tag == FIFO_TAG_GYRO:
+                x, y, z = unpack('<hhh', d)
+                out.append(("gyro", (x * self._gyro_scale, y * self._gyro_scale,
+                                     z * self._gyro_scale), self._fifo_ts))
+            # other tags (temperature, etc.) are not batched here; ignore.
+        return out
 
     def read_accel(self) -> tuple[float, float, float]:
         ax, ay, az = unpack('<hhh', self._read(OUTX_L_A, 6))

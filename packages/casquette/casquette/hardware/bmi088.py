@@ -116,6 +116,7 @@ class BMI088:
     # ImuDriver contract (see hardware/imu.py). SENSORTIME is a 24-bit counter.
     TIMESTAMP_RESOLUTION_US = SENSORTIME_RESOLUTION_US
     COUNTER_BITS = 24
+    USES_FIFO = False  # captured by register polling, not a FIFO drain
 
     def __init__(
         self,

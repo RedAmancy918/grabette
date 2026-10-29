@@ -39,6 +39,10 @@ class ImuDriver(Protocol):
 
     TIMESTAMP_RESOLUTION_US: float
     COUNTER_BITS: int
+    # True if the chip has a hardware FIFO that ImuCapture should drain (regular,
+    # ODR-clocked timestamps). FIFO drivers also provide read_fifo()/flush_fifo()
+    # (duck-typed, called only when USES_FIFO is True). False drivers are polled.
+    USES_FIFO: bool
 
     def init(self) -> None: ...
     def read_accel(self) -> tuple[float, float, float]: ...
@@ -141,6 +145,7 @@ class ImuCapture:
         self._i2c = None  # owned only when we open it ourselves
         self._res_us: float = 0.0
         self._mask: int = 0
+        self._uses_fifo: bool = False
         if driver is not None:
             self._bind_driver(driver)
 
@@ -164,6 +169,7 @@ class ImuCapture:
         self.driver = driver
         self._res_us = driver.TIMESTAMP_RESOLUTION_US
         self._mask = (1 << driver.COUNTER_BITS) - 1
+        self._uses_fifo = getattr(driver, "USES_FIFO", False)
 
     def _unwrap(self, raw: int) -> int:
         """Extend a raw wrapping counter reading into a monotonic one.
@@ -188,6 +194,9 @@ class ImuCapture:
         logger.info("IMU initialized at %d Hz", self.sample_rate_hz)
 
     def _capture_loop(self) -> None:
+        if self._uses_fifo:
+            self._fifo_capture_loop()
+            return
         error_count = 0
         consecutive_errors = 0
         read_count = 0
@@ -246,6 +255,49 @@ class ImuCapture:
         if error_pct > 1.0:
             logger.warning("IMU error rate %.1f%% — data may be unreliable", error_pct)
 
+    def _fifo_capture_loop(self) -> None:
+        """Drain the chip FIFO on a timer. Sample timestamps come from the
+        hardware counter batched in the FIFO, so they are evenly ODR-spaced and
+        regular even if a drain is late (bus contention) — and nothing is missed
+        between drains. The drain cadence only bounds latency, not the rate."""
+        error_count = 0
+        consecutive_errors = 0
+        drains = 0
+        drain_interval = 0.02  # 20 ms; FIFO depth (512) buffers well past this
+        next_drain = time.monotonic()
+
+        while self._running:
+            drains += 1
+            try:
+                for kind, val, raw in self.driver.read_fifo():
+                    cts = self._ticks_to_capture_ms(self._unwrap(raw))
+                    stream = self._samples.accel if kind == "accel" else self._samples.gyro
+                    stream.append({"cts": cts, "value": list(val)})
+                if consecutive_errors:
+                    consecutive_errors = 0
+            except Exception as e:
+                error_count += 1
+                consecutive_errors += 1
+                if consecutive_errors == 1:
+                    logger.debug("IMU FIFO read error: %s", e)
+                elif consecutive_errors == 10:
+                    logger.error("IMU: 10 consecutive FIFO errors — bus contention? %s", e)
+
+            next_drain += drain_interval
+            sleep_time = next_drain - time.monotonic()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
+        # Final calibration point for drift correction (same counter as the FIFO).
+        try:
+            self._cal_end_ticks = self._unwrap(self.driver.read_timestamp())
+            self._cal_end_sync_ms = self.sync.get_timestamp_ms()
+        except Exception:
+            logger.warning("IMU: failed to read final calibration point for drift correction")
+
+        logger.info("IMU(FIFO): %d drains, %d errors, %d accel, %d gyro samples",
+                     drains, error_count, len(self._samples.accel), len(self._samples.gyro))
+
     def _ticks_to_capture_ms(self, ticks: int) -> float:
         return (ticks * self._res_us) / 1000.0 + self._offset_ms
 
@@ -258,6 +310,11 @@ class ImuCapture:
             raise RuntimeError("SyncManager must be started before IMU capture")
 
         self._samples = IMUSamples()
+
+        # Clear any FIFO contents that accumulated since init, so the recording
+        # starts from an empty buffer aligned with the offset computed below.
+        if self._uses_fifo:
+            self.driver.flush_fifo()
 
         current_ticks = self.driver.read_timestamp()
         current_capture_ms = self.sync.get_timestamp_ms()

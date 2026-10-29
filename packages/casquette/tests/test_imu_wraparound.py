@@ -116,6 +116,68 @@ def test_lsm6dsv16x_scaling_and_timestamp():
     assert dev.read_timestamp() == 0x10  # little-endian 32-bit assembly
 
 
+class FakeFifoDriver:
+    """FIFO driver whose entries carry exactly-ODR-spaced hardware timestamps,
+    emitted for however much real time has elapsed since the last drain."""
+
+    USES_FIFO = True
+    COUNTER_BITS = 32
+    TIMESTAMP_RESOLUTION_US = TIMESTAMP_RESOLUTION_US
+
+    def __init__(self, hz=240):
+        self._t0 = time.monotonic()
+        self._n = 0
+        self._period = int((1.0 / hz) * 1e6 / self.TIMESTAMP_RESOLUTION_US)
+        self._hz = hz
+
+    def init(self):
+        pass
+
+    def read_timestamp(self):
+        return self._n * self._period
+
+    def flush_fifo(self):
+        self._n = 0
+        self._t0 = time.monotonic()
+
+    def read_fifo(self):
+        target = int((time.monotonic() - self._t0) * self._hz)
+        out = []
+        while self._n < target:
+            ts = self._n * self._period
+            out.append(("gyro", (0.0, 0.0, 0.0), ts))
+            out.append(("accel", (0.0, 9.81, 0.0), ts))
+            self._n += 1
+        return out
+
+    def read_accel(self):
+        return (0.0, 9.81, 0.0)
+
+    def read_gyro(self):
+        return (0.0, 0.0, 0.0)
+
+    def deinit(self):
+        pass
+
+
+def test_fifo_capture_is_regular_and_full_rate():
+    sync = SyncManager()
+    sync.start()
+    cap = ImuCapture(sync, driver=FakeFifoDriver(hz=240), sample_rate_hz=240)
+    cap.start_capture()
+    time.sleep(0.3)
+    samples = cap.stop()
+
+    cts = [s["cts"] for s in samples.accel]
+    assert len(cts) > 50                                   # ~72 at 240 Hz over 0.3 s
+    assert all(b > a for a, b in zip(cts, cts[1:]))        # monotonic
+    assert len(samples.gyro) == len(samples.accel)         # paired streams
+    dts = [b - a for a, b in zip(cts, cts[1:])]
+    mean_dt = sum(dts) / len(dts)
+    assert 3.8 < mean_dt < 4.6                             # ~4.17 ms at 240 Hz
+    assert max(abs(d - mean_dt) for d in dts) < 0.5        # regular: tight spread
+
+
 def test_lsm6dsv16x_wrong_whoami_raises():
     dev = LSM6DSV16X(FakeI2C({WHO_AM_I: bytes([0x6A])}))
     with pytest.raises(RuntimeError, match="WHO_AM_I"):
