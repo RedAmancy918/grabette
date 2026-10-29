@@ -365,7 +365,7 @@ class OakdCapture:
             "baseline": baseline_m,
             "imu_to_cam": imu_extr,
         }
-        # Same contract the offline pipeline checks (grabette_postprocess
+        # Same contract the offline pipeline checks (grabette-slam's grabette_postprocess
         # checks.recording._check_calib): a present-but-degenerate calibration is
         # exactly as unusable as a missing one, so catch it here too rather than
         # letting it through to produce episodes that fail conversion.

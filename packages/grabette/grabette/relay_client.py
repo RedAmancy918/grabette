@@ -53,6 +53,8 @@ _BATTERY_INTERVAL_S = 30.0
 # are dispatched immediately, concurrently with whatever is running. Only put
 # command types here that do no hardware work and return fast.
 _FAST_PATH_TYPES = frozenset({"cancel_dataset"})
+_REPORT_ATTEMPTS = 3
+_REPORT_RETRY_S = 5.0
 
 # Hardware-fault text is reported on the heartbeat, i.e. in a query string. The
 # messages name the fault, the consequence and the fix, so they are a sentence or
@@ -276,12 +278,18 @@ class RelayClient:
                         res = await handler(cmd)
                     except Exception as e:  # noqa: BLE001
                         res = {"status": "error", "message": str(e)}
-                    token = self.token_provider()
-                    if token:
-                        try:
-                            await self._report(session, token, cmd["id"], res)
-                        except Exception:
-                            logger.warning("relay report failed for %s", cmd.get("id"), exc_info=True)
+                    for attempt in range(_REPORT_ATTEMPTS):
+                        token = self.token_provider()
+                        if token:
+                            try:
+                                await self._report(session, token, cmd["id"], res)
+                                break
+                            except Exception:
+                                logger.warning("relay report failed for %s (attempt %d/%d)",
+                                               cmd.get("id"), attempt + 1, _REPORT_ATTEMPTS,
+                                               exc_info=True)
+                        if attempt + 1 < _REPORT_ATTEMPTS:
+                            await asyncio.sleep(_REPORT_RETRY_S)
                 finally:
                     # Nothing can act on this command any more, so stop remembering
                     # a cancel for it.
@@ -326,6 +334,9 @@ class RelayClient:
                         # a field that only appears when broken can never say
                         # "fixed". Truncated because it rides in a query string.
                         params["error"] = (fault or "")[:_FAULT_MAX_CHARS]
+                    # Sent on every beat, empty included: lets the fleet spot a
+                    # command this device forgot (fast restart, lost result).
+                    params["running"] = ",".join(sorted(inflight))
                     warm = self._read_depth_warm()
                     self._sent_depth_warm = warm
                     if warm is not None:
