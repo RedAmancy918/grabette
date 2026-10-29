@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import os
 import random
 import time
 from pathlib import Path
@@ -31,27 +30,12 @@ class MockBackend(Backend):
         self._frame_count = 0
         self._imu_sample_count = 0
         self._angle_sample_count = 0
-        # GRABETTE_MOCK_ANGLE_FAULT=1 starts with the angle sensors down, so
-        # the dashboard's fault chip and Diagnose popup can be tried without a
-        # Pi; "Reconnect the sensors" clears it.
-        self._angle_fault = (
-            "the gripper angle sensors could not be initialised (No device "
-            "found for /dev/i2c-3) — mock"
-            if os.environ.get("GRABETTE_MOCK_ANGLE_FAULT") else "")
         # Starts as the device's real file says, so the dashboard's calibration
         # flow can be tried on a workstation; calibrating only flips it — a mock
         # has no zero to write into ~/.grabette.
         from grabette.hardware.angle import load_calibration
         self._calibrated = load_calibration() is not None
         self._tactile_sample_count = 0
-
-    @property
-    def angle_sensors_status(self) -> dict:
-        return {"enabled": True, "initialized": not self._angle_fault,
-                "error": self._angle_fault}
-
-    def reinit_angle_sensors(self) -> None:
-        self._angle_fault = ""
 
     async def start(self) -> None:
         self._running = True
@@ -160,10 +144,7 @@ class MockBackend(Backend):
 
     @property
     def hardware_error(self) -> str:
-        # Every live fault, in the same order as RpiBackend's.
-        faults = [self._angle_fault,
-                  "your device is not calibrated" if self.needs_calibration else ""]
-        return " / ".join(f for f in faults if f)
+        return "your device is not calibrated" if self.needs_calibration else ""
 
     async def calibrate_angles(self) -> dict:
         if self._capturing:
@@ -293,10 +274,17 @@ class MockBackend(Backend):
             for i in range(status.tactile_sample_count):
                 t = (i / status.tactile_sample_count) * duration_ms
                 samples.append({"cts": t, "value": [[0] * 6 for _ in range(6)]})
+            hz = (
+                (len(samples) - 1) / (samples[-1]["cts"] - samples[0]["cts"]) * 1000.0
+                if len(samples) > 1 and samples[-1]["cts"] > samples[0]["cts"]
+                else 0.0
+            )
             (episode_dir / "tactile_data.json").write_text(json.dumps({
-                "sample_rate_hz": 50,
                 "order": "row_major",
-                "sensors": {"1": {"array": 36, "rows": 6, "cols": 6, "samples": samples}},
+                "sensors": {"1": {
+                    "array": 36, "rows": 6, "cols": 6,
+                    "hz": round(hz, 2), "samples": samples,
+                }},
             }))
 
         # Placeholder video file

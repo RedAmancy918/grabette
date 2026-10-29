@@ -47,14 +47,13 @@ downstream consumes it).
 > canonical name and falls back to the legacy one, so both layouts process
 > identically. Never hardcode either name in new code.
 
-`tactile_data.json` is present only when tactile sensors are enabled (`GRABETTE_TACTILE_SENSORS=true`). It holds one entry per Modbus device address, each carrying its own shape (sensors on one bus may differ, e.g. a 6x6 SEN0704 next to a 4x8 SEN0705). Each sample `value` is a canonical `rows x cols` grid of raw 12-bit ADC ints (0-4095), row-major top-to-bottom:
+`tactile_data.json` is present only when tactile sensors are enabled (`GRABETTE_TACTILE_SENSORS=true`). It holds one entry per Modbus device address, each carrying its own shape (sensors on one bus may differ, e.g. a 6x6 SEN0704 next to a 4x8 SEN0705). The bus is polled at max throughput with no pacing, so the per-sensor rate is roughly `bus_throughput / N` (≈300 Hz for 1 sensor, 150 Hz for 2, …); the measured value is stored per sensor as `hz`. Each sample `value` is a canonical `rows x cols` grid of raw 12-bit ADC ints (0-4095), row-major top-to-bottom, with a `cts` timestamp (ms, shared clock) for exact per-frame timing:
 
 ```json
 {
-  "sample_rate_hz": 50,
   "order": "row_major",
   "sensors": {
-    "1": {"array": 36, "rows": 6, "cols": 6, "samples": [{"cts": 0.0, "value": [[0, 0, 0, 0, 0, 0], "... 6 rows ..."]}]}
+    "1": {"array": 36, "rows": 6, "cols": 6, "hz": 298.7, "samples": [{"cts": 0.0, "value": [[0, 0, 0, 0, 0, 0], "... 6 rows ..."]}]}
   }
 }
 ```
@@ -81,7 +80,7 @@ Added by the rpi backend at capture stop:
 
 ## IMU format
 
-`dcam_imu.json` — the OAK-D SR onboard IMU stream, written as `{"samples": [...]}` with interleaved accelerometer, gyroscope, and rotation-vector packets (accel in m/s², gyro in rad/s), timestamped on the shared capture clock. `convert_episode_to_oak.py` (in [grabette-postprocess](https://github.com/pollen-robotics/grabette-slam/tree/develop/grabette-postprocess)) expands it into `imu_acc.csv` / `imu_gyro.csv` / `imu_rotation.csv` for SLAM.
+`dcam_imu.json` — the OAK-D SR onboard IMU stream, written as `{"samples": [...]}` with interleaved accelerometer, gyroscope, and rotation-vector packets (accel in m/s², gyro in rad/s), timestamped on the shared capture clock. `convert_episode_to_oak.py` (in [grabette-postprocess](../../grabette-postprocess)) expands it into `imu_acc.csv` / `imu_gyro.csv` / `imu_rotation.csv` for SLAM.
 
 > The legacy GoPro-style `imu_data.json` (`ACCL`/`GYRO` streams) is the older casquette/V1 format and is **not** produced by the OAK-D recording — the mock backend still emits it for development.
 
@@ -106,4 +105,7 @@ RPi (camera + OAK-D + AS5600L)
 ```
 
 Downstream processing (SLAM → LeRobot dataset) lives in
-[grabette-postprocess](https://github.com/pollen-robotics/grabette-slam/tree/develop/grabette-postprocess).
+[grabette-postprocess](../../grabette-postprocess). When every episode in a build
+has `tactile_data.json` with a matching sensor config, tactile is exported as a
+per-sensor integer feature `observation.tactile.sensor_<addr>` (shape `rows x cols`),
+nearest-aligned to the trajectory timestamps.

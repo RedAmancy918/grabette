@@ -182,4 +182,23 @@ class Settings(BaseSettings):
         return [int(a) for a in self.tactile_addresses.split(",") if a.strip()]
 
 
+    @property
+    def tactile_sensor_map(self) -> dict[int, tuple[int, int]]:
+        """Map each Modbus address to its (rows, cols) shape."""
+        addrs = [int(a) for a in self.tactile_addresses.split(",") if a.strip()]
+        shape_strs = [s.strip() for s in self.tactile_shapes.split(",") if s.strip()]
+        if len(shape_strs) == 1:
+            shape_strs = shape_strs * len(addrs)
+        if len(shape_strs) != len(addrs):
+            raise ValueError(
+                "tactile_shapes must have one entry (applied to all) or match "
+                f"the number of tactile_addresses ({len(addrs)})"
+            )
+        shapes: list[tuple[int, int]] = []
+        for s in shape_strs:
+            rows, cols = s.lower().split("x")
+            shapes.append((int(rows), int(cols)))
+        return dict(zip(addrs, shapes))
+
+
 settings = Settings()
